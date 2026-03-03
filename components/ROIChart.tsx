@@ -30,7 +30,11 @@ function pickValue(actions: ActionData[] | undefined, field: AttrField): number 
   if (!actions) return 0;
   for (const type of PURCHASE_PRIORITY) {
     const match = actions.find((a) => a.action_type === type);
-    if (match) return parseFloat((match[field] ?? match.value ?? '0'));
+    if (match) {
+      // For 'value' use the default field; for window-specific fields, don't fall back
+      if (field === 'value') return parseFloat(match.value ?? '0');
+      return parseFloat(match[field] ?? '0');
+    }
   }
   return 0;
 }
@@ -64,11 +68,11 @@ const PERIOD_LABELS: Record<DatePreset, string> = {
   last_90d: '90 derniers jours',
 };
 
-// ROI line definitions
+// ROI line definitions — 3 distinct attribution windows
 const ROI_LINES = [
-  { key: 'roiAll',      label: 'Toutes conversions',          color: '#3B82F6', dash: ''     },
-  { key: 'roiFirst7d',  label: 'Prem. conv. 7j clic',         color: '#F59E0B', dash: ''     },
-  { key: 'roiFirstAll', label: 'Prem. conv. (all attr.)',      color: '#10B981', dash: '5 3' },
+  { key: 'roiAll',      label: 'Toutes conv. (7j+1j)',   color: '#3B82F6', dash: ''     },
+  { key: 'roiFirst7d',  label: 'Clic seul (7j)',          color: '#F59E0B', dash: ''     },
+  { key: 'roiFirstAll', label: 'Vue seule (1j)',           color: '#10B981', dash: '5 3' },
 ] as const;
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
@@ -141,15 +145,14 @@ export default function ROIChart({ refreshKey = 0, datePreset = 'last_30d' }: Pr
         const d = new Date(item.date_start!);
         const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
 
-        // 1. Toutes conversions — all events, default window (7d_click + 1d_view)
+        // 1. Toutes conv. — 7d_click + 1d_view combined (Meta default)
         const convAll = pickValue(item.action_values, 'value');
 
-        // 2. Prem. conv. 7j clic — conversion value attributed to 7-day click window only
+        // 2. Clic seul (7j) — only click-attributed conversions
         const convFirst7d = pickValue(item.action_values, '7d_click');
 
-        // 3. Prem. conv. all attr — all windows (7d_click + 1d_view), ≈ toutes conversions
-        //    as expected: "all attr first conversion is very close to all conversions"
-        const convFirstAll = pickValue(item.action_values, 'value');
+        // 3. Vue seule (1j) — only view-through attributed conversions
+        const convFirstAll = pickValue(item.action_values, '1d_view');
 
         return {
           date,
@@ -197,7 +200,7 @@ export default function ROIChart({ refreshKey = 0, datePreset = 'last_30d' }: Pr
           <div>
             <h2 className="text-base font-semibold text-gray-900">ROI journalier</h2>
             <p className="text-xs text-gray-400 mt-0.5">
-              {PERIOD_LABELS[datePreset]} · Formule : (CA × {(MARGIN_RATE * 100).toFixed(1)}%) / Dépenses pub · Seuil de rentabilité à 100%
+              {PERIOD_LABELS[datePreset]} · (CA × {(MARGIN_RATE * 100).toFixed(1)}%) / Dépenses · Bleu = 7j clic + 1j vue · Jaune = clic seul · Vert = vue seule
             </p>
           </div>
 
