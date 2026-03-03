@@ -13,6 +13,8 @@ export interface AdCreative {
 export interface AdInsightAction {
   action_type: string;
   value: string;
+  '7d_click'?: string;
+  '1d_view'?: string;
 }
 
 export interface AdInsight {
@@ -34,20 +36,23 @@ export interface AdData {
   name: string;
   status: 'ACTIVE' | 'PAUSED' | 'DELETED' | 'ARCHIVED' | string;
   created_time: string;
+  adset_id?: string;
+  adset?: { id: string; name: string };
   creative?: AdCreative;
   insights?: {
     data: AdInsight[];
   };
 }
 
-// ─── Parsed creative (enriched, used by UI) ───────────────────────────────────
+// ─── Parsed creative (enriched, one row per ad) ───────────────────────────────
 
 export type CreativeFormat = 'VIDEO' | 'IMAGE' | 'SHOPPING' | 'UNKNOWN';
 
 export type CreativeSignal = 'SCALE' | 'WATCH' | 'FATIGUE' | 'CUT' | 'NEW';
 
 export interface ParsedCreative {
-  id: string;
+  id: string;             // ad id
+  creativeId: string;     // creative.id — grouping key
   rawName: string;
   creativeName: string;   // parsed segment from naming convention
   campaign: string;       // e.g. "evergreenfeb"
@@ -58,6 +63,9 @@ export interface ParsedCreative {
   isCopy: boolean;
   status: string;
   thumbnailUrl: string | null;
+  // ad set
+  adSetId: string;
+  adSetName: string;
   // metrics
   spend: number;
   roas: number;
@@ -66,6 +74,35 @@ export interface ParsedCreative {
   cpm: number;
   frequency: number;
   purchases: number;
+  impressions: number;
+  clicks: number;
+  purchaseValue: number;  // for proper ROAS aggregation
   // signal
   signal: CreativeSignal;
+}
+
+// ─── Grouped creative (one row per unique creative, aggregated across ad sets) ─
+
+export interface GroupedCreative {
+  creativeId: string;
+  rawName: string;
+  creativeName: string;
+  campaign: string;
+  launchDate: string;
+  ageDays: number;
+  format: CreativeFormat;
+  hasPromo: boolean;
+  isCopy: boolean;
+  thumbnailUrl: string | null;
+  // aggregated metrics
+  spend: number;
+  roas: number;
+  cpa: number;
+  ctr: number;
+  cpm: number;
+  frequency: number;
+  purchases: number;
+  signal: CreativeSignal;
+  // individual ad rows
+  variants: ParsedCreative[];
 }

@@ -25,6 +25,8 @@ export async function GET(request: Request) {
         'name',
         'status',
         'created_time',
+        'adset_id',
+        'adset{id,name}',
         `creative{${creativeFields}}`,
         `insights.date_preset(${datePreset}){${insightFields}}`,
       ].join(','),
