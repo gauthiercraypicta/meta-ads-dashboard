@@ -8,6 +8,7 @@ import {
   CreativeFormat,
   CreativeSignal,
 } from '@/types/creative';
+import CreativesDiagnostic from './CreativesDiagnostic';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PURCHASE_TYPES = [
@@ -406,6 +407,9 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
 
   return (
     <div className="space-y-4">
+
+      {/* ── Diagnostic créatives ── */}
+      <CreativesDiagnostic grouped={grouped} />
 
       {/* ── Summary bar ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
