@@ -18,6 +18,7 @@ export interface InsightData {
   frequency?: string;
   actions?: ActionData[];
   action_values?: ActionData[];
+  unique_actions?: ActionData[];
   purchase_roas?: ActionData[];
   date_start?: string;
   date_stop?: string;

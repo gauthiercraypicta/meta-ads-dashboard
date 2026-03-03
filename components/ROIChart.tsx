@@ -25,16 +25,31 @@ const PURCHASE_PRIORITY = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function pickValue(actions: ActionData[] | undefined, field: 'value' | '7d_click' | '28d_click'): number {
+type AttrField = 'value' | '7d_click' | '1d_view';
+
+function pickValue(actions: ActionData[] | undefined, field: AttrField): number {
   if (!actions) return 0;
   for (const type of PURCHASE_PRIORITY) {
     const match = actions.find((a) => a.action_type === type);
-    if (match) {
-      const raw = match[field];
-      return parseFloat(raw || '0');
-    }
+    if (match) return parseFloat((match[field] ?? match.value ?? '0'));
   }
   return 0;
+}
+
+// First-conversion value = all_value × (unique_count / all_count)
+// Unique_actions gives number of unique people who converted → proxy for "first conversion"
+function firstConvValue(
+  actionValues: ActionData[] | undefined,
+  uniqueActions: ActionData[] | undefined,
+  actions: ActionData[] | undefined,
+  field: AttrField,
+): number {
+  const allVal   = pickValue(actionValues, field);
+  const allCount = pickValue(actions,      field);
+  const uniCount = pickValue(uniqueActions, field);
+  if (allCount <= 0 || allVal <= 0) return 0;
+  const ratio = Math.min(uniCount / allCount, 1);
+  return allVal * ratio;
 }
 
 function computeROI(convValue: number, spend: number): number | null {
@@ -142,21 +157,33 @@ export default function ROIChart({ refreshKey = 0, datePreset = 'last_30d' }: Pr
         const d = new Date(item.date_start!);
         const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
 
-        // 1. Toutes conversions: default value (7d_click + 1d_view combined)
+        // 1. Toutes conversions — all events, default window (7d_click + 1d_view)
         const convAll = pickValue(item.action_values, 'value');
 
-        // 2. Prem. conv. 7j clic: 7-day click attribution only
-        const convFirst7d = pickValue(item.action_values, '7d_click');
+        // 2. Prem. conv. 7j clic — first conversion × 7-day click window
+        //    = action_values[7d_click] × (unique_actions[7d_click] / actions[7d_click])
+        const convFirst7d = firstConvValue(
+          item.action_values,
+          item.unique_actions,
+          item.actions,
+          '7d_click',
+        );
 
-        // 3. Prem. conv. all attributions: 28-day click (broadest window)
-        const convFirstAll = pickValue(item.action_values, '28d_click');
+        // 3. Prem. conv. all attr — first conversion × default window (7d_click + 1d_view)
+        //    = action_values[value] × (unique_actions[value] / actions[value])
+        const convFirstAll = firstConvValue(
+          item.action_values,
+          item.unique_actions,
+          item.actions,
+          'value',
+        );
 
         return {
           date,
           dateRaw: item.date_start!,
           roiAll:      computeROI(convAll,       spend),
           roiFirst7d:  computeROI(convFirst7d,   spend),
-          roiFirstAll: computeROI(convFirstAll || convAll, spend),
+          roiFirstAll: computeROI(convFirstAll,  spend),
           spend,
         };
       })
