@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import MetricCard from './MetricCard';
 import DataTable, { Column } from './DataTable';
 import DailyChart from './DailyChart';
+import ROIChart from './ROIChart';
 import BudgetPacing from './BudgetPacing';
 import FunnelDiagnostic from './FunnelDiagnostic';
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics } from '@/types/meta';
@@ -768,6 +769,12 @@ export default function Dashboard() {
           refreshKey={refreshKey}
           datePreset={datePreset}
           focusedKpi={focusedKpi}
+        />
+
+        {/* ── ROI Chart ── */}
+        <ROIChart
+          refreshKey={refreshKey}
+          datePreset={datePreset}
         />
       </main>
 

@@ -20,11 +20,12 @@ export async function GET(request: Request) {
 
   try {
     const params = new URLSearchParams({
-      fields: 'spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,purchase_roas',
+      fields: 'spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,unique_actions,unique_action_values,purchase_roas',
       time_increment: '1',
       date_preset: datePreset,
       access_token: META_ACCESS_TOKEN,
       limit: '100',
+      action_attribution_windows: JSON.stringify(['7d_click', '1d_view']),
     });
 
     const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
