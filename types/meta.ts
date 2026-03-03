@@ -1,6 +1,7 @@
 export interface ActionData {
   action_type: string;
   value: string;
+  '1d_click'?: string;
   '7d_click'?: string;
   '1d_view'?: string;
 }
@@ -16,8 +17,6 @@ export interface InsightData {
   frequency?: string;
   actions?: ActionData[];
   action_values?: ActionData[];
-  unique_actions?: ActionData[];
-  unique_action_values?: ActionData[];
   purchase_roas?: ActionData[];
   date_start?: string;
   date_stop?: string;

@@ -25,12 +25,12 @@ const PURCHASE_PRIORITY = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function pickValue(actions: ActionData[] | undefined, field: 'value' | '7d_click'): number {
+function pickValue(actions: ActionData[] | undefined, field: 'value' | '1d_click' | '7d_click'): number {
   if (!actions) return 0;
   for (const type of PURCHASE_PRIORITY) {
     const match = actions.find((a) => a.action_type === type);
     if (match) {
-      const raw = field === '7d_click' ? match['7d_click'] : match.value;
+      const raw = match[field];
       return parseFloat(raw || '0');
     }
   }
@@ -67,9 +67,9 @@ const PERIOD_LABELS: Record<DatePreset, string> = {
 
 // ROI line definitions
 const ROI_LINES = [
-  { key: 'roiAll',      label: 'Toutes conversions',        color: '#3B82F6', dash: ''        },
-  { key: 'roiFirst',    label: 'Premières conversions',     color: '#10B981', dash: ''        },
-  { key: 'roiFirst7d',  label: 'Prem. conv. 7j clic',       color: '#F59E0B', dash: '5 3'    },
+  { key: 'roiAll',      label: 'Toutes conversions',          color: '#3B82F6', dash: ''     },
+  { key: 'roiFirst',    label: 'Prem. conv. (1j clic)',        color: '#10B981', dash: ''     },
+  { key: 'roiFirst7d',  label: 'Prem. conv. (7j clic)',        color: '#F59E0B', dash: '5 3' },
 ] as const;
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
@@ -142,13 +142,13 @@ export default function ROIChart({ refreshKey = 0, datePreset = 'last_30d' }: Pr
         const d = new Date(item.date_start!);
         const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
 
-        // 1. All conversions: default action_values (7d_click + 1d_view)
+        // 1. All conversions: default value (7d_click + 1d_view combined)
         const convAll = pickValue(item.action_values, 'value');
 
-        // 2. First conversions: unique_action_values (unique purchasers)
-        const convFirst = pickValue(item.unique_action_values, 'value');
+        // 2. First conversions: 1-day click attribution only (most direct)
+        const convFirst = pickValue(item.action_values, '1d_click');
 
-        // 3. First conversion 7d click: action_values['7d_click']
+        // 3. First conversion 7d click: 7-day click attribution only
         const convFirst7d = pickValue(item.action_values, '7d_click');
 
         return {
