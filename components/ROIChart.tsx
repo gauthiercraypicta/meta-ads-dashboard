@@ -25,7 +25,7 @@ const PURCHASE_PRIORITY = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function pickValue(actions: ActionData[] | undefined, field: 'value' | '1d_click' | '7d_click'): number {
+function pickValue(actions: ActionData[] | undefined, field: 'value' | '7d_click' | '28d_click'): number {
   if (!actions) return 0;
   for (const type of PURCHASE_PRIORITY) {
     const match = actions.find((a) => a.action_type === type);
@@ -52,8 +52,8 @@ interface ROIPoint {
   date: string;
   dateRaw: string;
   roiAll: number | null;
-  roiFirst: number | null;
   roiFirst7d: number | null;
+  roiFirstAll: number | null;
   spend: number;
 }
 
@@ -68,8 +68,8 @@ const PERIOD_LABELS: Record<DatePreset, string> = {
 // ROI line definitions
 const ROI_LINES = [
   { key: 'roiAll',      label: 'Toutes conversions',          color: '#3B82F6', dash: ''     },
-  { key: 'roiFirst',    label: 'Prem. conv. (1j clic)',        color: '#10B981', dash: ''     },
-  { key: 'roiFirst7d',  label: 'Prem. conv. (7j clic)',        color: '#F59E0B', dash: '5 3' },
+  { key: 'roiFirst7d',  label: 'Prem. conv. 7j clic',         color: '#F59E0B', dash: ''     },
+  { key: 'roiFirstAll', label: 'Prem. conv. (all attr.)',      color: '#10B981', dash: '5 3' },
 ] as const;
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
@@ -142,21 +142,21 @@ export default function ROIChart({ refreshKey = 0, datePreset = 'last_30d' }: Pr
         const d = new Date(item.date_start!);
         const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
 
-        // 1. All conversions: default value (7d_click + 1d_view combined)
+        // 1. Toutes conversions: default value (7d_click + 1d_view combined)
         const convAll = pickValue(item.action_values, 'value');
 
-        // 2. First conversions: 1-day click attribution only (most direct)
-        const convFirst = pickValue(item.action_values, '1d_click');
-
-        // 3. First conversion 7d click: 7-day click attribution only
+        // 2. Prem. conv. 7j clic: 7-day click attribution only
         const convFirst7d = pickValue(item.action_values, '7d_click');
+
+        // 3. Prem. conv. all attributions: 28-day click (broadest window)
+        const convFirstAll = pickValue(item.action_values, '28d_click');
 
         return {
           date,
           dateRaw: item.date_start!,
-          roiAll:     computeROI(convAll,     spend),
-          roiFirst:   computeROI(convFirst,   spend),
-          roiFirst7d: computeROI(convFirst7d, spend),
+          roiAll:      computeROI(convAll,       spend),
+          roiFirst7d:  computeROI(convFirst7d,   spend),
+          roiFirstAll: computeROI(convFirstAll || convAll, spend),
           spend,
         };
       })

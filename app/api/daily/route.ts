@@ -25,7 +25,7 @@ export async function GET(request: Request) {
       date_preset: datePreset,
       access_token: META_ACCESS_TOKEN,
       limit: '100',
-      action_attribution_windows: JSON.stringify(['1d_click', '7d_click', '1d_view']),
+      action_attribution_windows: JSON.stringify(['7d_click', '28d_click', '1d_view']),
     });
 
     const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;

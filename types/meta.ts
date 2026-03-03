@@ -3,6 +3,7 @@ export interface ActionData {
   value: string;
   '1d_click'?: string;
   '7d_click'?: string;
+  '28d_click'?: string;
   '1d_view'?: string;
 }
 
