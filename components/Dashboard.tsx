@@ -7,6 +7,7 @@ import MetricCard from './MetricCard';
 import DataTable, { Column } from './DataTable';
 import DailyChart from './DailyChart';
 import ROIChart from './ROIChart';
+import CreativesTable from './CreativesTable';
 import BudgetPacing from './BudgetPacing';
 import FunnelDiagnostic from './FunnelDiagnostic';
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics } from '@/types/meta';
@@ -196,6 +197,7 @@ export default function Dashboard() {
   const [loading, setLoading]         = useState(true);
   const [errors, setErrors]           = useState<FetchErrors>({});
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives'>('apercu');
   const [activeTab, setActiveTab]     = useState<'campaigns' | 'adsets'>('campaigns');
   const [refreshKey, setRefreshKey]   = useState(0);
   const [datePreset, setDatePreset]   = useState<DatePreset>('last_30d');
@@ -600,8 +602,40 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* ── Tab navigation ── */}
+      <div className="bg-white border-b border-gray-200 sticky top-[73px] z-10">
+        <div className="max-w-screen-2xl mx-auto px-6 flex gap-0">
+          {([
+            { key: 'apercu',     label: 'Aperçu',      icon: '📊' },
+            { key: 'creatives',  label: 'Créatives',   icon: '🎨' },
+          ] as { key: 'apercu' | 'creatives'; label: string; icon: string }[]).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setMainTab(tab.key)}
+              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-all ${
+                mainTab === tab.key
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <span>{tab.icon}</span>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── Content ── */}
-      <main className="max-w-screen-2xl mx-auto px-6 py-6 space-y-6">
+      <main className="max-w-screen-2xl mx-auto px-6 py-6">
+
+      {/* ═══ ONGLET CRÉATIVES ═══ */}
+      {mainTab === 'creatives' && (
+        <CreativesTable refreshKey={refreshKey} datePreset={datePreset} />
+      )}
+
+      {/* ═══ ONGLET APERÇU ═══ */}
+      {mainTab === 'apercu' && (
+      <div className="space-y-6">
 
         {/* Budget pacing */}
         <BudgetPacing />
@@ -776,6 +810,8 @@ export default function Dashboard() {
           refreshKey={refreshKey}
           datePreset={datePreset}
         />
+      </div>
+      )}
       </main>
 
       {/* ── Footer ── */}
