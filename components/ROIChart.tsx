@@ -10,7 +10,6 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
-  Legend,
 } from 'recharts';
 import { InsightData, ActionData } from '@/types/meta';
 
@@ -36,21 +35,6 @@ function pickValue(actions: ActionData[] | undefined, field: AttrField): number 
   return 0;
 }
 
-// First-conversion value = all_value × (unique_count / all_count)
-// Unique_actions gives number of unique people who converted → proxy for "first conversion"
-function firstConvValue(
-  actionValues: ActionData[] | undefined,
-  uniqueActions: ActionData[] | undefined,
-  actions: ActionData[] | undefined,
-  field: AttrField,
-): number {
-  const allVal   = pickValue(actionValues, field);
-  const allCount = pickValue(actions,      field);
-  const uniCount = pickValue(uniqueActions, field);
-  if (allCount <= 0 || allVal <= 0) return 0;
-  const ratio = Math.min(uniCount / allCount, 1);
-  return allVal * ratio;
-}
 
 function computeROI(convValue: number, spend: number): number | null {
   if (spend <= 0 || convValue <= 0) return null;
@@ -160,23 +144,12 @@ export default function ROIChart({ refreshKey = 0, datePreset = 'last_30d' }: Pr
         // 1. Toutes conversions — all events, default window (7d_click + 1d_view)
         const convAll = pickValue(item.action_values, 'value');
 
-        // 2. Prem. conv. 7j clic — first conversion × 7-day click window
-        //    = action_values[7d_click] × (unique_actions[7d_click] / actions[7d_click])
-        const convFirst7d = firstConvValue(
-          item.action_values,
-          item.unique_actions,
-          item.actions,
-          '7d_click',
-        );
+        // 2. Prem. conv. 7j clic — conversion value attributed to 7-day click window only
+        const convFirst7d = pickValue(item.action_values, '7d_click');
 
-        // 3. Prem. conv. all attr — first conversion × default window (7d_click + 1d_view)
-        //    = action_values[value] × (unique_actions[value] / actions[value])
-        const convFirstAll = firstConvValue(
-          item.action_values,
-          item.unique_actions,
-          item.actions,
-          'value',
-        );
+        // 3. Prem. conv. all attr — all windows (7d_click + 1d_view), ≈ toutes conversions
+        //    as expected: "all attr first conversion is very close to all conversions"
+        const convFirstAll = pickValue(item.action_values, 'value');
 
         return {
           date,
