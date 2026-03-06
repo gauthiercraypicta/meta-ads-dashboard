@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     });
 
     const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
-    const response = await fetch(url, { cache: 'no-store' });
+    const response = await fetch(url, { next: { revalidate: 60 } });
     const data: MetaApiResponse<InsightData> = await response.json();
 
     if (data.error) {

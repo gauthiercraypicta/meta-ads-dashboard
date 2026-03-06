@@ -25,11 +25,11 @@ export async function GET(request: Request) {
       date_preset: datePreset,
       access_token: META_ACCESS_TOKEN,
       limit: '100',
-      action_attribution_windows: JSON.stringify(['7d_click', '1d_view']),
+      action_attribution_windows: JSON.stringify(['7d_click', '1d_view', '7d_click_first_conversion', '1d_view_first_conversion']),
     });
 
     const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
-    const response = await fetch(url, { cache: 'no-store' });
+    const response = await fetch(url, { next: { revalidate: 60 } });
     const data: MetaApiResponse<InsightData> = await response.json();
 
     if (data.error) {

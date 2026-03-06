@@ -9,6 +9,7 @@ import {
   CreativeSignal,
 } from '@/types/creative';
 import CreativesDiagnostic from './CreativesDiagnostic';
+import CreativeHealthPanel from './CreativeHealthPanel';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PURCHASE_TYPES = [
@@ -410,6 +411,9 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
 
       {/* ── Diagnostic créatives ── */}
       <CreativesDiagnostic grouped={grouped} />
+
+      {/* ── Creative Health (churn · hit rate · reliance) ── */}
+      <CreativeHealthPanel creatives={grouped} />
 
       {/* ── Summary bar ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

@@ -10,7 +10,11 @@ import ROIChart from './ROIChart';
 import CreativesTable from './CreativesTable';
 import BudgetPacing from './BudgetPacing';
 import FunnelDiagnostic from './FunnelDiagnostic';
-import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics } from '@/types/meta';
+import TopAdSets from './TopAdSets';
+import WeekHeatmap from './WeekHeatmap';
+import VeilleDashboard from './VeilleDashboard';
+
+import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics, InsightData } from '@/types/meta';
 import { processInsights, computeTotals, getStatusColor } from '@/lib/metaHelpers';
 import { formatCurrency, formatNumber, formatPercent, formatROAS } from '@/lib/formatters';
 
@@ -135,38 +139,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// ─── Static Ad Set columns (no dependency on component state) ─────────────────
-
-const adsetColumns: Column<ProcessedAdSet>[] = [
-  {
-    key: 'name',
-    header: 'Ad Set',
-    sortable: true,
-    render: (row) => (
-      <div>
-        <p className="font-semibold text-gray-900 max-w-xs truncate">{row.name}</p>
-        <p className="text-xs text-gray-400 font-mono">{row.id}</p>
-      </div>
-    ),
-  },
-  {
-    key: 'status',
-    header: 'Statut',
-    sortable: true,
-    render: (row) => <StatusBadge status={row.status} />,
-  },
-  { key: 'spend',           header: 'Dépenses',    sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-800">{formatCurrency(row.spend)}</span> },
-  { key: 'conversionValue', header: 'Val. conv.',   sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatCurrency(row.conversionValue)}</span> },
-  { key: 'roas',            header: 'ROAS',         sortable: true, align: 'right', render: (row) => roasBadge(row.roas) },
-  { key: 'cpa',             header: 'CPA',          sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{row.cpa > 0 ? formatCurrency(row.cpa) : '—'}</span> },
-  { key: 'ctr',             header: 'CTR',          sortable: true, align: 'right', render: (row) => ctrBadge(row.ctr) },
-  { key: 'cpm',             header: 'CPM',          sortable: true, align: 'right', render: (row) => cpmBadge(row.cpm) },
-  { key: 'cpc',             header: 'CPC',          sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatCurrency(row.cpc)}</span> },
-  { key: 'impressions',     header: 'Impressions',  sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatNumber(row.impressions)}</span> },
-  { key: 'clicks',          header: 'Clics',        sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatNumber(row.clicks)}</span> },
-  { key: 'conversions',     header: 'Conv.',        sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatNumber(row.conversions)}</span> },
-];
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type DatePreset = 'last_7d' | 'last_30d' | 'last_90d';
@@ -197,13 +169,16 @@ export default function Dashboard() {
   const [loading, setLoading]         = useState(true);
   const [errors, setErrors]           = useState<FetchErrors>({});
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives'>('apercu');
+  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'veille'>('apercu');
   const [activeTab, setActiveTab]     = useState<'campaigns' | 'adsets'>('campaigns');
   const [refreshKey, setRefreshKey]   = useState(0);
   const [datePreset, setDatePreset]   = useState<DatePreset>('last_30d');
   const [comparison, setComparison]   = useState<ProcessedMetrics | null>(null);
   const [currentAcc, setCurrentAcc]   = useState<ProcessedMetrics | null>(null); // account-level current period (for deltas)
   const [focusedKpi, setFocusedKpi]   = useState<string | null>(null);
+  const [dailyData, setDailyData]       = useState<InsightData[] | null>(null);
+  const [monthlySpend, setMonthlySpend] = useState<number | null>(null);
+  const [adsets7d, setAdsets7d]         = useState<AdSet[]>([]);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -211,11 +186,14 @@ export default function Dashboard() {
     setLoading(true);
     setErrors({});
 
-    const [campaignsResult, adsetsResult, prevResult, currAccResult] = await Promise.allSettled([
+    const [campaignsResult, adsetsResult, prevResult, currAccResult, dailyResult, monthlyResult, adsets7dResult] = await Promise.allSettled([
       fetch(`/api/campaigns?date_preset=${datePreset}`).then((r) => r.json()),
       fetch(`/api/adsets?date_preset=${datePreset}`).then((r) => r.json()),
       fetch(`/api/account-insights?date_preset=${datePreset}&mode=previous`).then((r) => r.json()),
       fetch(`/api/account-insights?date_preset=${datePreset}`).then((r) => r.json()),
+      fetch(`/api/daily?date_preset=${datePreset}`).then((r) => r.json()),
+      fetch(`/api/account-insights?date_preset=this_month`).then((r) => r.json()),
+      fetch(`/api/adsets?date_preset=last_7d`).then((r) => r.json()),
     ]);
 
     const newErrors: FetchErrors = {};
@@ -252,6 +230,31 @@ export default function Dashboard() {
       setCurrentAcc(processInsights(currAccResult.value.data[0]));
     } else {
       setCurrentAcc(null);
+    }
+
+    // Daily data — shared with DailyChart + ROIChart to avoid duplicate fetches
+    if (dailyResult.status === 'fulfilled' && !dailyResult.value.error) {
+      setDailyData(dailyResult.value.data ?? []);
+    } else {
+      setDailyData(null);
+    }
+
+    // This-month spend — shared with BudgetPacing to avoid a duplicate fetch
+    if (
+      monthlyResult.status === 'fulfilled' &&
+      !monthlyResult.value.error &&
+      monthlyResult.value.data?.[0]
+    ) {
+      setMonthlySpend(processInsights(monthlyResult.value.data[0]).spend);
+    } else {
+      setMonthlySpend(null);
+    }
+
+    // Last-7d adsets — for learning phase badge (supplemental, failures are silent)
+    if (adsets7dResult.status === 'fulfilled' && !adsets7dResult.value.error) {
+      setAdsets7d(adsets7dResult.value.data ?? []);
+    } else {
+      setAdsets7d([]);
     }
 
     setErrors(newErrors);
@@ -297,10 +300,75 @@ export default function Dashboard() {
   const hiddenCampaignsCount = processedCampaigns.length - activeCampaigns.length;
   const hiddenAdsetsCount    = processedAdsets.length - activeAdsets.length;
 
+  // Map: adset ID → 7-day conversions (for learning phase badge)
+  const adsets7dConversions = useMemo((): Map<string, number> => {
+    const map = new Map<string, number>();
+    for (const a of adsets7d) {
+      map.set(a.id, processInsights(a.insights?.data[0]).conversions);
+    }
+    return map;
+  }, [adsets7d]);
+
   const totals = useMemo(
     () => computeTotals(processedCampaigns.map((c) => ({ ...c }))),
     [processedCampaigns]
   );
+
+  // ── Ad Set columns (depends on adsets7dConversions for learning badge) ────
+
+  const adsetColumns = useMemo((): Column<ProcessedAdSet>[] => [
+    {
+      key: 'name',
+      header: 'Ad Set',
+      sortable: true,
+      render: (row) => {
+        const conv7d     = adsets7dConversions.get(row.id);
+        const isLearning = conv7d !== undefined && conv7d < 50;
+        return (
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-semibold text-gray-900 max-w-xs truncate">{row.name}</p>
+              {isLearning && (
+                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 flex-shrink-0">
+                  ⚡ Learning
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 font-mono">{row.id}</p>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'status',
+      header: 'Statut',
+      sortable: true,
+      render: (row) => <StatusBadge status={row.status} />,
+    },
+    { key: 'spend',           header: 'Dépenses',    sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-800">{formatCurrency(row.spend)}</span> },
+    { key: 'conversionValue', header: 'Val. conv.',   sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatCurrency(row.conversionValue)}</span> },
+    { key: 'roas',            header: 'ROAS',         sortable: true, align: 'right', render: (row) => roasBadge(row.roas) },
+    { key: 'cpa',             header: 'CPA',          sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{row.cpa > 0 ? formatCurrency(row.cpa) : '—'}</span> },
+    {
+      key: 'frequency',
+      header: 'Fréq.',
+      sortable: true,
+      align: 'right',
+      render: (row) => {
+        if (row.frequency <= 0) return <span className="text-gray-400">—</span>;
+        let cls = 'text-green-600';
+        if (row.frequency > 4)    cls = 'text-red-600 font-semibold';
+        else if (row.frequency > 2.5) cls = 'text-orange-500';
+        return <span className={`font-mono text-xs ${cls}`}>{row.frequency.toFixed(2)}</span>;
+      },
+    },
+    { key: 'ctr',         header: 'CTR',          sortable: true, align: 'right', render: (row) => ctrBadge(row.ctr) },
+    { key: 'cpm',         header: 'CPM',          sortable: true, align: 'right', render: (row) => cpmBadge(row.cpm) },
+    { key: 'cpc',         header: 'CPC',          sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatCurrency(row.cpc)}</span> },
+    { key: 'impressions', header: 'Impressions',  sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatNumber(row.impressions)}</span> },
+    { key: 'clicks',      header: 'Clics',        sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatNumber(row.clicks)}</span> },
+    { key: 'conversions', header: 'Conv.',         sortable: true, align: 'right', render: (row) => <span className="font-mono text-sm text-gray-700">{formatNumber(row.conversions)}</span> },
+  ], [adsets7dConversions]);
 
   // CVR = conversions / clicks × 100
   const cvr = useMemo(
@@ -608,7 +676,8 @@ export default function Dashboard() {
           {([
             { key: 'apercu',     label: 'Aperçu',      icon: '📊' },
             { key: 'creatives',  label: 'Créatives',   icon: '🎨' },
-          ] as { key: 'apercu' | 'creatives'; label: string; icon: string }[]).map((tab) => (
+            { key: 'veille',     label: 'Veille',      icon: '🔍' },
+          ] as { key: 'apercu' | 'creatives' | 'veille'; label: string; icon: string }[]).map((tab) => (
             <button
               key={tab.key}
               onClick={() => setMainTab(tab.key)}
@@ -633,12 +702,17 @@ export default function Dashboard() {
         <CreativesTable refreshKey={refreshKey} datePreset={datePreset} />
       )}
 
+      {/* ═══ ONGLET VEILLE ═══ */}
+      {mainTab === 'veille' && (
+        <VeilleDashboard />
+      )}
+
       {/* ═══ ONGLET APERÇU ═══ */}
       {mainTab === 'apercu' && (
       <div className="space-y-6">
 
         {/* Budget pacing */}
-        <BudgetPacing />
+        <BudgetPacing monthlySpend={monthlySpend} />
 
         {/* Error banners */}
         {hasError && (
@@ -728,6 +802,18 @@ export default function Dashboard() {
             ctr={totals.ctr}
             cvr={cvr}
             onKpiClick={(kpi) => setFocusedKpi(kpi)}
+            adsets={activeAdsets}
+            dailyData={dailyData}
+          />
+        )}
+
+        {/* ── Top 5 Ad Sets ── */}
+        {!loading && activeAdsets.length > 0 && (
+          <TopAdSets
+            adsets={activeAdsets}
+            avgCpa={totals.cpa}
+            adsets7dConversions={adsets7dConversions}
+            onViewAll={() => setActiveTab('adsets')}
           />
         )}
 
@@ -803,13 +889,19 @@ export default function Dashboard() {
           refreshKey={refreshKey}
           datePreset={datePreset}
           focusedKpi={focusedKpi}
+          dailyData={dailyData}
         />
 
         {/* ── ROI Chart ── */}
         <ROIChart
           refreshKey={refreshKey}
           datePreset={datePreset}
+          dailyData={dailyData}
         />
+
+        {/* ── Week Heatmap ── */}
+        <WeekHeatmap dailyData={dailyData} />
+
       </div>
       )}
       </main>

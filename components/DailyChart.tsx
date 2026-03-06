@@ -165,9 +165,11 @@ interface Props {
   refreshKey?: number;
   datePreset?: DatePreset;
   focusedKpi?: string | null;
+  /** Pass pre-fetched data from Dashboard to avoid a duplicate /api/daily request */
+  dailyData?: InsightData[] | null;
 }
 
-export default function DailyChart({ refreshKey = 0, datePreset = 'last_30d', focusedKpi }: Props) {
+export default function DailyChart({ refreshKey = 0, datePreset = 'last_30d', focusedKpi, dailyData }: Props) {
   const [rawData, setRawData] = useState<InsightData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,8 +204,15 @@ export default function DailyChart({ refreshKey = 0, datePreset = 'last_30d', fo
   }, [datePreset]);
 
   useEffect(() => {
+    // If parent supplies data, use it directly — no extra network call
+    if (dailyData !== undefined) {
+      setRawData(dailyData ?? []);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     fetchDaily();
-  }, [fetchDaily, refreshKey]);
+  }, [fetchDaily, refreshKey, dailyData]);
 
   const chartData = useMemo(() => processDailyData(rawData), [rawData]);
 

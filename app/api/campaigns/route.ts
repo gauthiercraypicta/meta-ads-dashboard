@@ -35,7 +35,7 @@ export async function GET(request: Request) {
 
     const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/campaigns?${params.toString()}`;
 
-    const response = await fetch(url, { cache: 'no-store' });
+    const response = await fetch(url, { next: { revalidate: 300 } });
     const data: MetaApiResponse<Campaign> = await response.json();
 
     if (data.error) {
