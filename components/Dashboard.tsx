@@ -23,6 +23,8 @@ import {
 import type { AdSetDataPoint }        from './charts/ScatterAdSetEfficiency';
 import type { DailyPerf }             from './charts/BudgetProjectionScenarios';
 import type { FunnelData }            from './charts/ConversionFunnelVisual';
+import type { HeatmapCell }           from './charts/HeatmapHourDay';
+import type { CreativeFrequencyPoint } from './charts/CreativeFatigueCurve';
 
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics, InsightData } from '@/types/meta';
 import { processInsights, computeTotals, getStatusColor } from '@/lib/metaHelpers';
@@ -189,6 +191,8 @@ export default function Dashboard() {
   const [dailyData, setDailyData]       = useState<InsightData[] | null>(null);
   const [monthlySpend, setMonthlySpend] = useState<number | null>(null);
   const [adsets7d, setAdsets7d]         = useState<AdSet[]>([]);
+  const [heatmapData, setHeatmapData]         = useState<HeatmapCell[]>([]);
+  const [creativeFatigueData, setCreativeFatigueData] = useState<CreativeFrequencyPoint[]>([]);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -196,7 +200,7 @@ export default function Dashboard() {
     setLoading(true);
     setErrors({});
 
-    const [campaignsResult, adsetsResult, prevResult, currAccResult, dailyResult, monthlyResult, adsets7dResult] = await Promise.allSettled([
+    const [campaignsResult, adsetsResult, prevResult, currAccResult, dailyResult, monthlyResult, adsets7dResult, heatmapResult, fatigueCreativeResult] = await Promise.allSettled([
       fetch(`/api/campaigns?date_preset=${datePreset}`).then((r) => r.json()),
       fetch(`/api/adsets?date_preset=${datePreset}`).then((r) => r.json()),
       fetch(`/api/account-insights?date_preset=${datePreset}&mode=previous`).then((r) => r.json()),
@@ -204,6 +208,8 @@ export default function Dashboard() {
       fetch(`/api/daily?date_preset=${datePreset}`).then((r) => r.json()),
       fetch(`/api/account-insights?date_preset=this_month`).then((r) => r.json()),
       fetch(`/api/adsets?date_preset=last_7d`).then((r) => r.json()),
+      fetch(`/api/heatmap?date_preset=${datePreset}`).then((r) => r.json()),
+      fetch(`/api/creative-fatigue?date_preset=${datePreset}`).then((r) => r.json()),
     ]);
 
     const newErrors: FetchErrors = {};
@@ -265,6 +271,20 @@ export default function Dashboard() {
       setAdsets7d(adsets7dResult.value.data ?? []);
     } else {
       setAdsets7d([]);
+    }
+
+    // Heatmap heure/jour — silent failure
+    if (heatmapResult.status === 'fulfilled' && !heatmapResult.value.error) {
+      setHeatmapData(heatmapResult.value.data ?? []);
+    } else {
+      setHeatmapData([]);
+    }
+
+    // Creative fatigue curve — silent failure
+    if (fatigueCreativeResult.status === 'fulfilled' && !fatigueCreativeResult.value.error) {
+      setCreativeFatigueData(fatigueCreativeResult.value.data ?? []);
+    } else {
+      setCreativeFatigueData([]);
     }
 
     setErrors(newErrors);
@@ -979,12 +999,12 @@ export default function Dashboard() {
 
             {/* Row 2: Heatmap Heure/Jour — pleine largeur */}
             <div className="mb-6">
-              <HeatmapHourDay data={[]} />
+              <HeatmapHourDay data={heatmapData} />
             </div>
 
             {/* Row 3: Fatigue Créative + Budget Projection */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <CreativeFatigueCurve data={[]} />
+              <CreativeFatigueCurve data={creativeFatigueData} />
               {dailyPerfData.length > 0 ? (
                 <BudgetProjectionScenarios
                   dailyData={dailyPerfData}
