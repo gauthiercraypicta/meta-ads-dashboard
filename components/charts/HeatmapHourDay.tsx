@@ -18,6 +18,8 @@ type Metric = 'roas' | 'cpa' | 'ctr';
 interface Props {
   data: HeatmapCell[];
   metric?: Metric;
+  timezoneName?: string;
+  timezoneOffset?: number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -104,7 +106,7 @@ function HoverTooltip({ state }: { state: TooltipState }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function HeatmapHourDay({ data, metric: defaultMetric = 'roas' }: Props) {
+export default function HeatmapHourDay({ data, metric: defaultMetric = 'roas', timezoneName, timezoneOffset }: Props) {
   const [metric, setMetric] = useState<Metric>(defaultMetric);
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false, x: 0, y: 0, cell: null, metric: 'roas',
@@ -137,7 +139,19 @@ export default function HeatmapHourDay({ data, metric: defaultMetric = 'roas' }:
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="font-semibold text-gray-900 text-sm">Performance par Heure & Jour</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Heatmap 7 jours × 24 heures</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Heatmap 7 jours × 24 heures
+            {timezoneName && (
+              <span className="ml-2 inline-flex items-center gap-1 font-mono bg-gray-100 text-gray-600 rounded px-1.5 py-0.5 text-[10px]">
+                🕐 {timezoneName}
+                {timezoneOffset != null && (
+                  <span className="text-gray-400">
+                    {' '}UTC{timezoneOffset >= 0 ? '+' : ''}{timezoneOffset}
+                  </span>
+                )}
+              </span>
+            )}
+          </p>
         </div>
         {/* Switcher */}
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">

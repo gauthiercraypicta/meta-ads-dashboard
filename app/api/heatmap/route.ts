@@ -62,18 +62,29 @@ export async function GET(request: Request) {
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
 
   try {
-    const params = new URLSearchParams({
-      fields:            'spend,impressions,clicks,ctr,actions,action_values,purchase_roas',
-      time_increment:    '1',          // daily rows — so we know the date → DOW
-      breakdowns:        'hourly_stats_aggregated_by_advertiser_time_zone',
-      date_preset:       datePreset,
-      access_token:      META_ACCESS_TOKEN,
-      limit:             '5000',       // 30d × 24h = 720 rows max, no pagination needed
+    // Fetch account timezone + insights in parallel
+    const tzParams = new URLSearchParams({
+      fields:       'timezone_name,timezone_offset_hours_utc',
+      access_token: META_ACCESS_TOKEN,
+    });
+    const insightParams = new URLSearchParams({
+      fields:         'spend,impressions,clicks,ctr,actions,action_values,purchase_roas',
+      time_increment: '1',
+      breakdowns:     'hourly_stats_aggregated_by_advertiser_time_zone',
+      date_preset:    datePreset,
+      access_token:   META_ACCESS_TOKEN,
+      limit:          '5000',
     });
 
-    const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
-    const res  = await fetch(url, { next: { revalidate: 900 } }); // 15 min cache
-    const json = await res.json();
+    const [tzRes, insightRes] = await Promise.all([
+      fetch(`${BASE_URL}/${META_AD_ACCOUNT_ID}?${tzParams}`, { next: { revalidate: 86400 } }), // 24h — timezone rarely changes
+      fetch(`${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${insightParams}`, { next: { revalidate: 900 } }),
+    ]);
+
+    const [tzJson, json] = await Promise.all([tzRes.json(), insightRes.json()]);
+
+    const timezoneName:   string = tzJson.timezone_name ?? 'UTC';
+    const timezoneOffset: number = tzJson.timezone_offset_hours_utc ?? 0;
 
     if (json.error) {
       return NextResponse.json(
@@ -146,7 +157,7 @@ export async function GET(request: Request) {
       cells.push({ day, hour, roas, spend: b.spend, conversions: b.conversions, ctr });
     }
 
-    return NextResponse.json({ data: cells });
+    return NextResponse.json({ data: cells, timezoneName, timezoneOffset });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur inconnue';
     return NextResponse.json({ error: `Impossible de joindre Meta API : ${message}` }, { status: 503 });

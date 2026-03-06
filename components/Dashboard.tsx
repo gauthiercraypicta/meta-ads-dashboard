@@ -192,6 +192,7 @@ export default function Dashboard() {
   const [monthlySpend, setMonthlySpend] = useState<number | null>(null);
   const [adsets7d, setAdsets7d]         = useState<AdSet[]>([]);
   const [heatmapData, setHeatmapData]         = useState<HeatmapCell[]>([]);
+  const [heatmapTz, setHeatmapTz]             = useState<{ name: string; offset: number } | null>(null);
   const [creativeFatigueData, setCreativeFatigueData] = useState<CreativeFrequencyPoint[]>([]);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
@@ -276,6 +277,9 @@ export default function Dashboard() {
     // Heatmap heure/jour — silent failure
     if (heatmapResult.status === 'fulfilled' && !heatmapResult.value.error) {
       setHeatmapData(heatmapResult.value.data ?? []);
+      if (heatmapResult.value.timezoneName) {
+        setHeatmapTz({ name: heatmapResult.value.timezoneName, offset: heatmapResult.value.timezoneOffset ?? 0 });
+      }
     } else {
       setHeatmapData([]);
     }
@@ -999,7 +1003,11 @@ export default function Dashboard() {
 
             {/* Row 2: Heatmap Heure/Jour — pleine largeur */}
             <div className="mb-6">
-              <HeatmapHourDay data={heatmapData} />
+              <HeatmapHourDay
+                data={heatmapData}
+                timezoneName={heatmapTz?.name}
+                timezoneOffset={heatmapTz?.offset}
+              />
             </div>
 
             {/* Row 3: Fatigue Créative + Budget Projection */}
