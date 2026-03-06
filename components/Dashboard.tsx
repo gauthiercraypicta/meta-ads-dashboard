@@ -980,39 +980,39 @@ export default function Dashboard() {
               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Beta</span>
             </div>
 
-            {/* Row 1: Scatter + Funnel */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="space-y-6">
+              {/* 1 — Scatter Efficience Ad Sets */}
               {scatterData.length > 0 ? (
                 <ScatterAdSetEfficiency data={scatterData} breakEvenRoas={2.0} />
               ) : (
-                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-64">
+                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-32">
                   Données ad sets indisponibles
                 </div>
               )}
+
+              {/* 2 — Funnel de conversion */}
               {totals.impressions > 0 ? (
                 <ConversionFunnelVisual
                   data={funnelData}
                   benchmarks={{ ctr: 0.009, cvr: 0.10 }}
                 />
               ) : (
-                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-64">
+                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-32">
                   Données funnel indisponibles
                 </div>
               )}
-            </div>
 
-            {/* Row 2: Heatmap Heure/Jour — pleine largeur */}
-            <div className="mb-6">
+              {/* 3 — Heatmap Heure/Jour */}
               <HeatmapHourDay
                 data={heatmapData}
                 timezoneName={heatmapTz?.name}
                 timezoneOffset={heatmapTz?.offset}
               />
-            </div>
 
-            {/* Row 3: Fatigue Créative + Budget Projection */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* 4 — Fatigue Créative */}
               <CreativeFatigueCurve data={creativeFatigueData} />
+
+              {/* 5 — Projection Budget */}
               {dailyPerfData.length > 0 ? (
                 <BudgetProjectionScenarios
                   dailyData={dailyPerfData}
@@ -1020,7 +1020,7 @@ export default function Dashboard() {
                   margin={0.45}
                 />
               ) : (
-                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-64">
+                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-32">
                   Données journalières indisponibles
                 </div>
               )}
