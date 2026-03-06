@@ -13,6 +13,16 @@ import FunnelDiagnostic from './FunnelDiagnostic';
 import TopAdSets from './TopAdSets';
 import WeekHeatmap from './WeekHeatmap';
 import VeilleDashboard from './VeilleDashboard';
+import {
+  ScatterAdSetEfficiency,
+  HeatmapHourDay,
+  CreativeFatigueCurve,
+  ConversionFunnelVisual,
+  BudgetProjectionScenarios,
+} from './charts';
+import type { AdSetDataPoint }        from './charts/ScatterAdSetEfficiency';
+import type { DailyPerf }             from './charts/BudgetProjectionScenarios';
+import type { FunnelData }            from './charts/ConversionFunnelVisual';
 
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics, InsightData } from '@/types/meta';
 import { processInsights, computeTotals, getStatusColor } from '@/lib/metaHelpers';
@@ -313,6 +323,42 @@ export default function Dashboard() {
     () => computeTotals(processedCampaigns.map((c) => ({ ...c }))),
     [processedCampaigns]
   );
+
+  // ── Advanced Analytics derived data ───────────────────────────────────────
+
+  // ScatterAdSetEfficiency: map activeAdsets → AdSetDataPoint[]
+  const scatterData = useMemo((): AdSetDataPoint[] =>
+    activeAdsets
+      .filter((a) => a.spend > 0)
+      .map((a) => ({
+        name:        a.name,
+        spend:       a.spend,
+        roas:        a.roas,
+        conversions: a.conversions,
+        frequency:   a.frequency,
+      })),
+    [activeAdsets],
+  );
+
+  // BudgetProjectionScenarios: convert InsightData[] → DailyPerf[]
+  const dailyPerfData = useMemo((): DailyPerf[] => {
+    if (!dailyData) return [];
+    return dailyData.map((d) => {
+      const spend   = parseFloat(d.spend) || 0;
+      const roas    = d.purchase_roas?.[0] ? parseFloat(d.purchase_roas[0].value) || 0 : 0;
+      const revenue = spend * roas;
+      return { date: d.date_start ?? '', spend, revenue, roas };
+    }).filter((d) => d.date && d.spend > 0);
+  }, [dailyData]);
+
+  // ConversionFunnelVisual: map totals → FunnelData
+  const funnelData = useMemo((): FunnelData => ({
+    impressions: totals.impressions,
+    clicks:      totals.clicks,
+    conversions: totals.conversions,
+    revenue:     totals.conversionValue,
+    spend:       totals.spend,
+  }), [totals]);
 
   // ── Ad Set columns (depends on adsets7dConversions for learning badge) ────
 
@@ -901,6 +947,58 @@ export default function Dashboard() {
 
         {/* ── Week Heatmap ── */}
         <WeekHeatmap dailyData={dailyData} />
+
+        {/* ── Advanced Analytics ── */}
+        {!loading && (
+          <section className="mt-2">
+            <div className="flex items-center gap-3 mb-4">
+              <h2 className="text-base font-bold text-gray-900">Advanced Analytics</h2>
+              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Beta</span>
+            </div>
+
+            {/* Row 1: Scatter + Funnel */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              {scatterData.length > 0 ? (
+                <ScatterAdSetEfficiency data={scatterData} breakEvenRoas={2.0} />
+              ) : (
+                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-64">
+                  Données ad sets indisponibles
+                </div>
+              )}
+              {totals.impressions > 0 ? (
+                <ConversionFunnelVisual
+                  data={funnelData}
+                  benchmarks={{ ctr: 0.009, cvr: 0.10 }}
+                />
+              ) : (
+                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-64">
+                  Données funnel indisponibles
+                </div>
+              )}
+            </div>
+
+            {/* Row 2: Heatmap Heure/Jour — pleine largeur */}
+            <div className="mb-6">
+              <HeatmapHourDay data={[]} />
+            </div>
+
+            {/* Row 3: Fatigue Créative + Budget Projection */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <CreativeFatigueCurve data={[]} />
+              {dailyPerfData.length > 0 ? (
+                <BudgetProjectionScenarios
+                  dailyData={dailyPerfData}
+                  monthlyBudget={monthlySpend ?? 0}
+                  margin={0.45}
+                />
+              ) : (
+                <div className="bg-white rounded-xl border border-gray-200 p-6 flex items-center justify-center text-gray-400 text-sm h-64">
+                  Données journalières indisponibles
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
       </div>
       )}
