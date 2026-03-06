@@ -6,7 +6,7 @@ const BASE_URL    = `https://graph.facebook.com/${API_VERSION}`;
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RawHourlyRow {
-  hourly_stats_aggregated_by_advertiser_time_zone?: string; // e.g. "2024-01-15 14:00:00+0000"
+  hourly_stats_aggregated_by_advertiser_time_zone?: string; // e.g. "14:00:00 - 14:59:59"
   date_start?: string;   // "YYYY-MM-DD"
   spend?: string;
   impressions?: string;
@@ -43,11 +43,9 @@ function jsDayToIndex(jsDay: number): number {
   return (jsDay + 6) % 7;
 }
 
-// Parse "YYYY-MM-DD HH:MM:SS+ZZZZ" or "YYYY-MM-DD HH:MM:SS" → hour number
+// Parse Meta API format "14:00:00 - 14:59:59" → 14
 function parseHour(raw: string): number {
-  const parts = raw.split(' ');
-  if (parts.length < 2) return 0;
-  return parseInt(parts[1].split(':')[0], 10);
+  return parseInt(raw.split(':')[0], 10) || 0;
 }
 
 // ─── Route ───────────────────────────────────────────────────────────────────
@@ -66,12 +64,11 @@ export async function GET(request: Request) {
   try {
     const params = new URLSearchParams({
       fields:            'spend,impressions,clicks,ctr,actions,action_values,purchase_roas',
-      time_increment:    '1',          // daily rows — so we know the date
+      time_increment:    '1',          // daily rows — so we know the date → DOW
       breakdowns:        'hourly_stats_aggregated_by_advertiser_time_zone',
       date_preset:       datePreset,
       access_token:      META_ACCESS_TOKEN,
-      limit:             '5000',       // 30d × 24h = 720 max
-      action_attribution_windows: JSON.stringify(['7d_click']),
+      limit:             '5000',       // 30d × 24h = 720 rows max, no pagination needed
     });
 
     const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
