@@ -11,6 +11,7 @@ import {
 import CreativesDiagnostic from './CreativesDiagnostic';
 import CreativeHealthPanel from './CreativeHealthPanel';
 import { IncrementalReachChart } from './charts';
+import CreativeDetailModal from './CreativeDetailModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PURCHASE_TYPES = [
@@ -317,6 +318,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('ACTIVE');
   const [filterSignal, setFilterSignal] = useState<FilterSignal>('ALL');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selectedCreative, setSelectedCreative] = useState<GroupedCreative | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -530,12 +532,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                   const parentRow = (
                     <tr
                       key={`group-${g.creativeId}`}
-                      className={`transition-colors ${
-                        isMulti
-                          ? 'cursor-pointer hover:bg-blue-50/50'
-                          : 'hover:bg-gray-50'
-                      }`}
-                      onClick={isMulti ? () => toggleExpand(g.creativeId) : undefined}
+                      className="transition-colors cursor-pointer hover:bg-blue-50/50"
+                      onClick={() => setSelectedCreative(g)}
                     >
                       {/* Créative */}
                       <td className="px-3 py-2.5 w-60">
@@ -587,7 +585,10 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                       {/* Ad set */}
                       <td className="px-3 py-2.5 w-44">
                         {isMulti ? (
-                          <div className="flex items-center gap-1.5 select-none">
+                          <div
+                            className="flex items-center gap-1.5 select-none"
+                            onClick={(e) => { e.stopPropagation(); toggleExpand(g.creativeId); }}
+                          >
                             <span
                               className="text-gray-400 text-[9px] inline-block transition-transform duration-150"
                               style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}
@@ -685,6 +686,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
           </div>
         )}
       </div>
+
+      <CreativeDetailModal creative={selectedCreative} onClose={() => setSelectedCreative(null)} />
     </div>
   );
 }

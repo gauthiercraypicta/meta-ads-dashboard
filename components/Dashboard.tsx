@@ -8,6 +8,7 @@ import DataTable, { Column } from './DataTable';
 import DailyChart from './DailyChart';
 import ROIChart from './ROIChart';
 import CreativesTable from './CreativesTable';
+import VideoAnalysis from './VideoAnalysis';
 import BudgetPacing from './BudgetPacing';
 import FunnelDiagnostic from './FunnelDiagnostic';
 import TopAdSets from './TopAdSets';
@@ -350,19 +351,38 @@ export default function Dashboard() {
 
   // ── Advanced Analytics derived data ───────────────────────────────────────
 
-  // ScatterAdSetEfficiency: map activeAdsets → AdSetDataPoint[]
-  const scatterData = useMemo((): AdSetDataPoint[] =>
-    activeAdsets
-      .filter((a) => a.spend > 0)
-      .map((a) => ({
-        name:        a.name,
-        spend:       a.spend,
-        roas:        a.roas,
-        conversions: a.conversions,
-        frequency:   a.frequency,
-      })),
-    [activeAdsets],
-  );
+  // ScatterAdSetEfficiency: group activeAdsets by name, aggregate metrics
+  const scatterData = useMemo((): AdSetDataPoint[] => {
+    const grouped = new Map<string, { spend: number; conversions: number; conversionValue: number; impressions: number }>();
+    for (const a of activeAdsets) {
+      if (a.spend <= 0) continue;
+      const prev = grouped.get(a.name);
+      if (prev) {
+        prev.spend += a.spend;
+        prev.conversions += a.conversions;
+        prev.conversionValue += a.conversionValue;
+        prev.impressions += a.impressions;
+      } else {
+        grouped.set(a.name, {
+          spend: a.spend,
+          conversions: a.conversions,
+          conversionValue: a.conversionValue,
+          impressions: a.impressions,
+        });
+      }
+    }
+    return Array.from(grouped.entries()).map(([name, g]) => ({
+      name,
+      spend:       g.spend,
+      roas:        g.spend > 0 ? g.conversionValue / g.spend : 0,
+      conversions: g.conversions,
+      frequency:   g.impressions > 0
+        ? activeAdsets
+            .filter((a) => a.name === name && a.spend > 0)
+            .reduce((sum, a) => sum + a.frequency * a.impressions, 0) / g.impressions
+        : 0,
+    }));
+  }, [activeAdsets]);
 
   // BudgetProjectionScenarios: convert InsightData[] → DailyPerf[]
   const dailyPerfData = useMemo((): DailyPerf[] => {
@@ -769,7 +789,10 @@ export default function Dashboard() {
 
       {/* ═══ ONGLET CRÉATIVES ═══ */}
       {mainTab === 'creatives' && (
-        <CreativesTable refreshKey={refreshKey} datePreset={datePreset} />
+        <div className="space-y-6">
+          <CreativesTable refreshKey={refreshKey} datePreset={datePreset} />
+          <VideoAnalysis refreshKey={refreshKey} datePreset={datePreset} />
+        </div>
       )}
 
       {/* ═══ ONGLET VEILLE ═══ */}
