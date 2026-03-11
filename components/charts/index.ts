@@ -12,3 +12,5 @@ export type { FunnelData, IndustryBenchmarks } from './ConversionFunnelVisual';
 
 export { default as BudgetProjectionScenarios } from './BudgetProjectionScenarios';
 export type { DailyPerf } from './BudgetProjectionScenarios';
+
+export { default as IncrementalReachChart } from './IncrementalReachChart';

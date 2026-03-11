@@ -10,6 +10,7 @@ import {
 } from '@/types/creative';
 import CreativesDiagnostic from './CreativesDiagnostic';
 import CreativeHealthPanel from './CreativeHealthPanel';
+import { IncrementalReachChart } from './charts';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PURCHASE_TYPES = [
@@ -83,6 +84,7 @@ function parseAd(ad: AdData): Omit<ParsedCreative, 'signal'> {
   const cpm         = parseFloat(insight?.cpm         ?? '0');
   const freq        = parseFloat(insight?.frequency   ?? '0');
   const impressions = parseFloat(insight?.impressions ?? '0');
+  const reach       = parseFloat(insight?.reach       ?? '0');
   const clicks      = parseFloat(insight?.clicks      ?? '0');
 
   const purchases = (() => {
@@ -135,6 +137,7 @@ function parseAd(ad: AdData): Omit<ParsedCreative, 'signal'> {
     frequency:     freq,
     purchases,
     impressions,
+    reach,
     clicks,
     purchaseValue,
   };
@@ -172,6 +175,7 @@ function groupCreatives(creatives: ParsedCreative[]): GroupedCreative[] {
     const totalPurchases     = variants.reduce((s, v) => s + v.purchases,     0);
     const totalPurchaseValue = variants.reduce((s, v) => s + v.purchaseValue, 0);
     const totalImpressions   = variants.reduce((s, v) => s + v.impressions,   0);
+    const totalReach         = variants.reduce((s, v) => s + v.reach,         0);
     const totalClicks        = variants.reduce((s, v) => s + v.clicks,        0);
 
     const roas      = totalSpend       > 0 ? totalPurchaseValue / totalSpend          : 0;
@@ -183,7 +187,7 @@ function groupCreatives(creatives: ParsedCreative[]): GroupedCreative[] {
       ? variants.reduce((s, v) => s + v.frequency * v.impressions, 0) / totalImpressions
       : 0;
 
-    const agg = { spend: totalSpend, roas, cpa, ctr, cpm, frequency, purchases: totalPurchases };
+    const agg = { spend: totalSpend, roas, cpa, ctr, cpm, frequency, purchases: totalPurchases, reach: totalReach };
 
     groups.push({
       creativeId,
@@ -414,6 +418,9 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
 
       {/* ── Creative Health (churn · hit rate · reliance) ── */}
       <CreativeHealthPanel creatives={grouped} />
+
+      {/* ── Couverture incrémentale ── */}
+      <IncrementalReachChart creatives={grouped} />
 
       {/* ── Summary bar ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

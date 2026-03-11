@@ -75,6 +75,7 @@ export interface ParsedCreative {
   frequency: number;
   purchases: number;
   impressions: number;
+  reach: number;
   clicks: number;
   purchaseValue: number;  // for proper ROAS aggregation
   // signal
@@ -102,6 +103,7 @@ export interface GroupedCreative {
   cpm: number;
   frequency: number;
   purchases: number;
+  reach: number;
   signal: CreativeSignal;
   // individual ad rows
   variants: ParsedCreative[];

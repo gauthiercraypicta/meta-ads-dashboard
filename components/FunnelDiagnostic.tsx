@@ -60,10 +60,21 @@ function getActionValue(actions: ActionData[] | undefined, type: string): number
   return parseFloat(actions?.find((a) => a.action_type === type)?.value ?? '0') || 0;
 }
 
-function getFirstConvValue(actions: ActionData[] | undefined, type: string): number {
-  const entry = actions?.find((a) => a.action_type === type);
-  if (!entry) return 0;
-  return parseFloat(entry['7d_click_first_conversion'] ?? '0') || 0;
+const PURCHASE_TYPES = [
+  'omni_purchase',
+  'offsite_conversion.fb_pixel_purchase',
+  'purchase',
+] as const;
+
+type ConvField = '7d_click' | '1d_view' | '7d_click_first_conversion' | '1d_view_first_conversion' | 'value';
+
+function getConvValue(actionValues: ActionData[] | undefined, field: ConvField): number {
+  if (!actionValues) return 0;
+  for (const type of PURCHASE_TYPES) {
+    const entry = actionValues.find((a) => a.action_type === type);
+    if (entry) return parseFloat(entry[field] ?? '0');
+  }
+  return 0;
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
@@ -142,17 +153,19 @@ export default function FunnelDiagnostic({ cpm, ctr, cvr, onKpiClick, adsets, da
     return { avg, topOffenders };
   }, [adsets]);
 
-  // ── Card 5: ROAS alert data (7d click first conv., last 7 days) ───────────
+  // ── Card 5: ROAS alert data (first conv. 7d click + 1d view, full period) ─
 
   const roasAlertData = useMemo(() => {
     if (!dailyData || dailyData.length === 0) return { roas: 0, roi: 0, critiqueDays: 0 };
-    const last7 = dailyData.slice(-7);
 
     let totalSpend        = 0;
     let totalFirstConvVal = 0;
-    for (const d of last7) {
-      totalSpend        += parseFloat(d.spend ?? '0') || 0;
-      totalFirstConvVal += getFirstConvValue(d.action_values, 'purchase');
+    for (const d of dailyData) {
+      const spend = parseFloat(d.spend ?? '0') || 0;
+      const fc7d  = getConvValue(d.action_values, '7d_click_first_conversion');
+      const fc1d  = getConvValue(d.action_values, '1d_view_first_conversion');
+      totalSpend        += spend;
+      totalFirstConvVal += fc7d + fc1d;
     }
 
     const roas = totalSpend > 0 ? totalFirstConvVal / totalSpend : 0;
@@ -160,12 +173,12 @@ export default function FunnelDiagnostic({ cpm, ctr, cvr, onKpiClick, adsets, da
 
     // Count consecutive days below 1.8x from most recent backwards
     let critiqueDays = 0;
-    const sorted = [...last7].reverse();
+    const sorted = [...dailyData].reverse();
     for (const d of sorted) {
       const spend   = parseFloat(d.spend ?? '0') || 0;
-      const dayRoas = spend > 0
-        ? getFirstConvValue(d.action_values, 'purchase') / spend
-        : 0;
+      const fc7d    = getConvValue(d.action_values, '7d_click_first_conversion');
+      const fc1d    = getConvValue(d.action_values, '1d_view_first_conversion');
+      const dayRoas = spend > 0 ? (fc7d + fc1d) / spend : 0;
       if (spend > 0 && dayRoas < 1.8) critiqueDays++;
       else if (spend > 0) break; // streak broken on a day with real data
     }
@@ -381,7 +394,7 @@ export default function FunnelDiagnostic({ cpm, ctr, cvr, onKpiClick, adsets, da
                       ROI
                     </p>
                     <p className="text-xs font-bold text-gray-600 leading-tight mt-0.5">
-                      ROAS 7j (1ère conv.)
+                      ROAS 1ère conv. (7j clic + 1j vue)
                     </p>
                   </div>
                 </div>
@@ -396,7 +409,7 @@ export default function FunnelDiagnostic({ cpm, ctr, cvr, onKpiClick, adsets, da
                 {roas > 0 ? roas.toFixed(2) + 'x' : '—'}
               </p>
               <p className="text-[11px] text-gray-400 mb-1">
-                7j clic first conv. · 7 derniers jours
+                1ère conv. 7j clic + 1j vue · période sélectionnée
               </p>
 
               {/* ROI% */}
