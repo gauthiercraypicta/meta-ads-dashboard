@@ -45,15 +45,22 @@ function fmtNum(n: number): string {
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
 
+interface TipPayloadEntry {
+  dataKey: string;
+  value: number;
+  color: string;
+  payload: RowData;
+}
+
 interface TipProps {
   active?: boolean;
-  payload?: { dataKey: string; value: number; color: string }[];
+  payload?: TipPayloadEntry[];
   label?: string;
 }
 
 function CustomTooltip({ active, payload }: TipProps) {
   if (!active || !payload?.length) return null;
-  const row = payload[0]?.payload as RowData | undefined;
+  const row = payload[0]?.payload;
   if (!row) return null;
 
   return (
