@@ -288,6 +288,30 @@ function holdColor(v: number): string {
   return 'text-red-600 font-semibold';
 }
 
+function lifetimeBadge(ageDays: number) {
+  const remaining = Math.max(0, 75 - ageDays);
+  let bg: string, textColor: string, label: string;
+  if (remaining === 0) {
+    bg = 'bg-red-200'; textColor = 'text-red-800'; label = 'Fin de vie';
+  } else if (remaining < 15) {
+    bg = 'bg-red-100'; textColor = 'text-red-700'; label = `~${remaining}j`;
+  } else if (remaining <= 45) {
+    bg = 'bg-orange-100'; textColor = 'text-orange-700'; label = `~${remaining}j`;
+  } else {
+    bg = 'bg-gray-100'; textColor = 'text-gray-500'; label = `~${remaining}j`;
+  }
+  return (
+    <td className="px-3 py-2.5 text-center">
+      <span
+        className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${bg} ${textColor}`}
+        title="Estimation basée sur un cycle de vie moyen de 75 jours. Surveiller le CTR pour confirmer."
+      >
+        {label}
+      </span>
+    </td>
+  );
+}
+
 // ─── Th ───────────────────────────────────────────────────────────────────────
 function Th({ label, sortKey, current, dir, onSort, right = false }: {
   label: string; sortKey: SortKey; current: SortKey; dir: SortDir;
@@ -447,7 +471,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
   }
 
   const showVideoMetrics = filterFormat === 'VIDEO';
-  const COL_COUNT = showVideoMetrics ? 12 : 10;
+  const COL_COUNT = (showVideoMetrics ? 12 : 10) + 1; // +1 for Vie rest.
 
   return (
     <div className="space-y-4">
@@ -537,6 +561,9 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                   Créative
                 </th>
                 <Th label="Âge"   sortKey="ageDays"   current={sortKey} dir={sortDir} onSort={handleSort} right />
+                <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap">
+                  Vie rest.
+                </th>
                 <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400 w-44">
                   Ad set
                 </th>
@@ -621,6 +648,9 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                         {g.ageDays}j
                       </td>
 
+                      {/* Vie restante */}
+                      {lifetimeBadge(g.ageDays)}
+
                       {/* Ad set */}
                       <td className="px-3 py-2.5 w-44">
                         {isMulti ? (
@@ -693,6 +723,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
 
                           {/* Âge — blank */}
                           <td className="px-3 py-2 text-right text-xs text-gray-300">—</td>
+                          {/* Vie restante — blank */}
+                          <td className="px-3 py-2 text-center text-xs text-gray-300">—</td>
 
                           {/* Status in ad set column */}
                           <td className="px-3 py-2 w-44">{statusPill(v.status)}</td>
