@@ -9,6 +9,7 @@ import DailyChart from './DailyChart';
 import ROIChart from './ROIChart';
 import CreativesTable from './CreativesTable';
 import VideoAnalysis from './VideoAnalysis';
+import StaticAnalysis from './StaticAnalysis';
 import BudgetPacing from './BudgetPacing';
 import FunnelDiagnostic from './FunnelDiagnostic';
 import TopAdSets from './TopAdSets';
@@ -792,6 +793,7 @@ export default function Dashboard() {
         <div className="space-y-6">
           <CreativesTable refreshKey={refreshKey} datePreset={datePreset} />
           <VideoAnalysis refreshKey={refreshKey} datePreset={datePreset} />
+          <StaticAnalysis refreshKey={refreshKey} datePreset={datePreset} />
         </div>
       )}
 

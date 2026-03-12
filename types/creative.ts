@@ -78,6 +78,11 @@ export interface ParsedCreative {
   reach: number;
   clicks: number;
   purchaseValue: number;  // for proper ROAS aggregation
+  // video metrics
+  videoViews3s: number;
+  thruplay: number;
+  hookRate: number;       // videoViews3s / impressions × 100
+  holdRate: number;       // thruplay / videoViews3s × 100
   // signal
   signal: CreativeSignal;
 }
@@ -104,6 +109,13 @@ export interface GroupedCreative {
   frequency: number;
   purchases: number;
   reach: number;
+  impressions: number;
+  clicks: number;
+  // video metrics
+  videoViews3s: number;
+  thruplay: number;
+  hookRate: number;
+  holdRate: number;
   signal: CreativeSignal;
   // individual ad rows
   variants: ParsedCreative[];

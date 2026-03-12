@@ -11,7 +11,8 @@ import {
 import CreativesDiagnostic from './CreativesDiagnostic';
 import CreativeHealthPanel from './CreativeHealthPanel';
 import { IncrementalReachChart } from './charts';
-import CreativeDetailModal from './CreativeDetailModal';
+import FatigueDrawer from './FatigueDrawer';
+import WinningPatterns from './WinningPatterns';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PURCHASE_TYPES = [
@@ -115,6 +116,18 @@ function parseAd(ad: AdData): Omit<ParsedCreative, 'signal'> {
 
   const cpa = purchases > 0 ? spend / purchases : 0;
 
+  // Video metrics
+  const videoViews3s = (() => {
+    const a = (insight?.actions ?? []).find((x) => x.action_type === 'video_view');
+    return a ? parseFloat(a.value ?? '0') : 0;
+  })();
+  const thruplay = (() => {
+    const a = (insight?.actions ?? []).find((x) => x.action_type === 'video_thruplay_watched');
+    return a ? parseFloat(a.value ?? '0') : 0;
+  })();
+  const hookRate = impressions > 0 ? (videoViews3s / impressions) * 100 : 0;
+  const holdRate = videoViews3s > 0 ? (thruplay / videoViews3s) * 100 : 0;
+
   return {
     id:            ad.id,
     creativeId:    ad.creative?.id ?? '',
@@ -141,6 +154,10 @@ function parseAd(ad: AdData): Omit<ParsedCreative, 'signal'> {
     reach,
     clicks,
     purchaseValue,
+    videoViews3s,
+    thruplay,
+    hookRate,
+    holdRate,
   };
 }
 
@@ -178,6 +195,8 @@ function groupCreatives(creatives: ParsedCreative[]): GroupedCreative[] {
     const totalImpressions   = variants.reduce((s, v) => s + v.impressions,   0);
     const totalReach         = variants.reduce((s, v) => s + v.reach,         0);
     const totalClicks        = variants.reduce((s, v) => s + v.clicks,        0);
+    const totalVideoViews3s  = variants.reduce((s, v) => s + v.videoViews3s,  0);
+    const totalThruplay      = variants.reduce((s, v) => s + v.thruplay,      0);
 
     const roas      = totalSpend       > 0 ? totalPurchaseValue / totalSpend          : 0;
     const cpa       = totalPurchases   > 0 ? totalSpend         / totalPurchases      : 0;
@@ -187,8 +206,16 @@ function groupCreatives(creatives: ParsedCreative[]): GroupedCreative[] {
     const frequency = totalImpressions > 0
       ? variants.reduce((s, v) => s + v.frequency * v.impressions, 0) / totalImpressions
       : 0;
+    const hookRate  = totalImpressions   > 0 ? (totalVideoViews3s / totalImpressions) * 100 : 0;
+    const holdRate  = totalVideoViews3s  > 0 ? (totalThruplay / totalVideoViews3s) * 100    : 0;
 
-    const agg = { spend: totalSpend, roas, cpa, ctr, cpm, frequency, purchases: totalPurchases, reach: totalReach };
+    const agg = {
+      spend: totalSpend, roas, cpa, ctr, cpm, frequency,
+      purchases: totalPurchases, reach: totalReach,
+      impressions: totalImpressions, clicks: totalClicks,
+      videoViews3s: totalVideoViews3s, thruplay: totalThruplay,
+      hookRate, holdRate,
+    };
 
     groups.push({
       creativeId,
@@ -226,7 +253,7 @@ const FORMAT_CONFIG: Record<CreativeFormat, { label: string; color: string }> = 
 };
 
 // ─── Sort / Filter types ──────────────────────────────────────────────────────
-type SortKey = 'spend' | 'roas' | 'cpa' | 'ctr' | 'cpm' | 'frequency' | 'ageDays' | 'purchases';
+type SortKey = 'spend' | 'roas' | 'cpa' | 'ctr' | 'cpm' | 'frequency' | 'ageDays' | 'purchases' | 'hookRate' | 'holdRate';
 type SortDir = 'asc' | 'desc';
 type FilterFormat = 'ALL' | CreativeFormat;
 type FilterStatus = 'ALL' | 'ACTIVE' | 'PAUSED';
@@ -250,6 +277,40 @@ function freqColor(v: number): string {
   if (v > 3)   return 'text-orange-500 font-semibold';
   if (v > 2)   return 'text-yellow-600';
   return 'text-gray-700';
+}
+function hookColor(v: number): string {
+  if (v >= 30) return 'text-green-600 font-semibold';
+  if (v >= 15) return 'text-orange-500 font-semibold';
+  return 'text-red-600 font-semibold';
+}
+function holdColor(v: number): string {
+  if (v >= 25) return 'text-green-600 font-semibold';
+  if (v >= 10) return 'text-orange-500 font-semibold';
+  return 'text-red-600 font-semibold';
+}
+
+function lifetimeBadge(ageDays: number) {
+  const remaining = Math.max(0, 75 - ageDays);
+  let bg: string, textColor: string, label: string;
+  if (remaining === 0) {
+    bg = 'bg-red-200'; textColor = 'text-red-800'; label = 'Fin de vie';
+  } else if (remaining < 15) {
+    bg = 'bg-red-100'; textColor = 'text-red-700'; label = `~${remaining}j`;
+  } else if (remaining <= 45) {
+    bg = 'bg-orange-100'; textColor = 'text-orange-700'; label = `~${remaining}j`;
+  } else {
+    bg = 'bg-gray-100'; textColor = 'text-gray-500'; label = `~${remaining}j`;
+  }
+  return (
+    <td className="px-3 py-2.5 text-center">
+      <span
+        className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${bg} ${textColor}`}
+        title="Estimation basée sur un cycle de vie moyen de 75 jours. Surveiller le CTR pour confirmer."
+      >
+        {label}
+      </span>
+    </td>
+  );
 }
 
 // ─── Th ───────────────────────────────────────────────────────────────────────
@@ -319,6 +380,11 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
   const [filterSignal, setFilterSignal] = useState<FilterSignal>('ALL');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedCreative, setSelectedCreative] = useState<GroupedCreative | null>(null);
+  // Compare mode
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareIds, setCompareIds]   = useState<string[]>([]);
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -410,13 +476,17 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
     );
   }
 
-  const COL_COUNT = 10;
+  const showVideoMetrics = filterFormat === 'VIDEO';
+  const COL_COUNT = (showVideoMetrics ? 12 : 10) + 1; // +1 for Vie rest.
 
   return (
     <div className="space-y-4">
 
       {/* ── Diagnostic créatives ── */}
       <CreativesDiagnostic grouped={grouped} />
+
+      {/* ── Patterns gagnants ── */}
+      <WinningPatterns grouped={grouped} />
 
       {/* ── Creative Health (churn · hit rate · reliance) ── */}
       <CreativeHealthPanel creatives={grouped} />
@@ -488,7 +558,23 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
             );
           })}
         </div>
+        <div className="w-px h-5 bg-gray-200" />
+        <button
+          onClick={() => { setCompareMode((m) => !m); setCompareIds([]); }}
+          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+            compareMode ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+          }`}
+        >
+          {compareMode ? 'Annuler comparaison' : 'Comparer'}
+        </button>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-xs px-4 py-2 rounded-lg shadow-lg animate-pulse">
+          {toast}
+        </div>
+      )}
 
       {/* ── Table ── */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -496,10 +582,14 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                {compareMode && <th className="px-3 py-3 w-8" />}
                 <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400 w-60">
                   Créative
                 </th>
                 <Th label="Âge"   sortKey="ageDays"   current={sortKey} dir={sortDir} onSort={handleSort} right />
+                <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap">
+                  Vie rest.
+                </th>
                 <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400 w-44">
                   Ad set
                 </th>
@@ -508,6 +598,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                 <Th label="CPA"    sortKey="cpa"       current={sortKey} dir={sortDir} onSort={handleSort} right />
                 <Th label="CTR"    sortKey="ctr"       current={sortKey} dir={sortDir} onSort={handleSort} right />
                 <Th label="CPM"    sortKey="cpm"       current={sortKey} dir={sortDir} onSort={handleSort} right />
+                {showVideoMetrics && <Th label="Hook Rate" sortKey="hookRate" current={sortKey} dir={sortDir} onSort={handleSort} right />}
+                {showVideoMetrics && <Th label="Hold Rate" sortKey="holdRate" current={sortKey} dir={sortDir} onSort={handleSort} right />}
                 <Th label="Fréq."  sortKey="frequency" current={sortKey} dir={sortDir} onSort={handleSort} right />
                 <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap">
                   Signal
@@ -529,12 +621,49 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                   const isMulti    = g.variants.length > 1;
                   const activeCount = g.variants.filter((v) => v.status === 'ACTIVE').length;
 
+                  const isCompareSelected = compareIds.includes(g.creativeId);
+
                   const parentRow = (
                     <tr
                       key={`group-${g.creativeId}`}
-                      className="transition-colors cursor-pointer hover:bg-blue-50/50"
-                      onClick={() => setSelectedCreative(g)}
+                      className={`transition-colors cursor-pointer hover:bg-blue-50/50 ${isCompareSelected ? 'bg-blue-50' : ''}`}
+                      onClick={() => {
+                        if (compareMode) {
+                          setCompareIds((prev) => {
+                            if (prev.includes(g.creativeId)) return prev.filter((id) => id !== g.creativeId);
+                            if (prev.length >= 2) {
+                              setToast('Maximum 2 créas');
+                              setTimeout(() => setToast(null), 2000);
+                              return prev;
+                            }
+                            return [...prev, g.creativeId];
+                          });
+                        } else {
+                          setSelectedCreative(g);
+                        }
+                      }}
                     >
+                      {/* Compare checkbox */}
+                      {compareMode && (
+                        <td className="px-3 py-2.5 w-8" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isCompareSelected}
+                            onChange={() => {
+                              setCompareIds((prev) => {
+                                if (prev.includes(g.creativeId)) return prev.filter((id) => id !== g.creativeId);
+                                if (prev.length >= 2) {
+                                  setToast('Maximum 2 créas');
+                                  setTimeout(() => setToast(null), 2000);
+                                  return prev;
+                                }
+                                return [...prev, g.creativeId];
+                              });
+                            }}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </td>
+                      )}
                       {/* Créative */}
                       <td className="px-3 py-2.5 w-60">
                         <div className="flex items-center gap-2.5">
@@ -582,6 +711,9 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                         {g.ageDays}j
                       </td>
 
+                      {/* Vie restante */}
+                      {lifetimeBadge(g.ageDays)}
+
                       {/* Ad set */}
                       <td className="px-3 py-2.5 w-44">
                         {isMulti ? (
@@ -621,6 +753,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                       {metricTd(g.cpa,       (n) => `${fmt(n, 2)}€`)}
                       {metricTd(g.ctr,       (n) => `${fmt(n, 2)}%`)}
                       {metricTd(g.cpm,       (n) => `${fmt(n, 2)}€`)}
+                      {showVideoMetrics && metricTd(g.hookRate, (n) => `${fmt(n, 1)}%`, hookColor)}
+                      {showVideoMetrics && metricTd(g.holdRate, (n) => `${fmt(n, 1)}%`, holdColor)}
                       {metricTd(g.frequency, (n) => fmt(n, 1),         freqColor)}
 
                       {/* Signal */}
@@ -637,6 +771,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                             idx === g.variants.length - 1 ? '' : 'border-b border-slate-100'
                           }`}
                         >
+                          {compareMode && <td className="px-3 py-2 w-8" />}
                           {/* Ad set name + indicator */}
                           <td className="px-3 py-2 w-60">
                             <div className="flex items-center gap-1.5 pl-11">
@@ -652,6 +787,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
 
                           {/* Âge — blank */}
                           <td className="px-3 py-2 text-right text-xs text-gray-300">—</td>
+                          {/* Vie restante — blank */}
+                          <td className="px-3 py-2 text-center text-xs text-gray-300">—</td>
 
                           {/* Status in ad set column */}
                           <td className="px-3 py-2 w-44">{statusPill(v.status)}</td>
@@ -662,6 +799,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                           {metricTd(v.cpa,       (n) => `${fmt(n, 2)}€`)}
                           {metricTd(v.ctr,       (n) => `${fmt(n, 2)}%`)}
                           {metricTd(v.cpm,       (n) => `${fmt(n, 2)}€`)}
+                          {showVideoMetrics && metricTd(v.hookRate, (n) => `${fmt(n, 1)}%`, hookColor)}
+                          {showVideoMetrics && metricTd(v.holdRate, (n) => `${fmt(n, 1)}%`, holdColor)}
                           {metricTd(v.frequency, (n) => fmt(n, 1),         freqColor)}
 
                           {/* Variant signal */}
@@ -687,7 +826,122 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
         )}
       </div>
 
-      <CreativeDetailModal creative={selectedCreative} onClose={() => setSelectedCreative(null)} />
+      {/* Compare sticky footer */}
+      {compareMode && compareIds.length === 2 && (
+        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-lg px-6 py-3 flex items-center justify-center gap-4">
+          <span className="text-sm text-gray-600">2 créas sélectionnées</span>
+          <button
+            onClick={() => setShowCompareModal(true)}
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Voir la comparaison →
+          </button>
+        </div>
+      )}
+
+      {/* Compare Modal */}
+      {showCompareModal && (() => {
+        const creas = compareIds.map((id) => sorted.find((g) => g.creativeId === id) ?? grouped.find((g) => g.creativeId === id)).filter(Boolean) as GroupedCreative[];
+        if (creas.length !== 2) return null;
+        const [a, b] = creas;
+
+        type MetricRow = { label: string; aVal: string; bVal: string; aBetter: boolean | null };
+        const metrics: MetricRow[] = [
+          { label: 'Spend',     aVal: fmtCurrency(a.spend),       bVal: fmtCurrency(b.spend),       aBetter: a.spend > b.spend ? true : a.spend < b.spend ? false : null },
+          { label: 'ROAS',      aVal: `${fmt(a.roas, 2)}x`,      bVal: `${fmt(b.roas, 2)}x`,      aBetter: a.roas > b.roas ? true : a.roas < b.roas ? false : null },
+          { label: 'CPA',       aVal: a.cpa > 0 ? `${fmt(a.cpa, 2)}€` : '—', bVal: b.cpa > 0 ? `${fmt(b.cpa, 2)}€` : '—', aBetter: a.cpa > 0 && b.cpa > 0 ? a.cpa < b.cpa : null },
+          { label: 'CTR',       aVal: `${fmt(a.ctr, 2)}%`,       bVal: `${fmt(b.ctr, 2)}%`,       aBetter: a.ctr > b.ctr ? true : a.ctr < b.ctr ? false : null },
+          { label: 'CPM',       aVal: `${fmt(a.cpm, 2)}€`,       bVal: `${fmt(b.cpm, 2)}€`,       aBetter: a.cpm < b.cpm ? true : a.cpm > b.cpm ? false : null },
+          { label: 'Fréquence', aVal: fmt(a.frequency, 1),        bVal: fmt(b.frequency, 1),        aBetter: a.frequency < b.frequency ? true : a.frequency > b.frequency ? false : null },
+          { label: 'Âge',       aVal: `${a.ageDays}j`,           bVal: `${b.ageDays}j`,           aBetter: null },
+        ];
+        if (a.format === 'VIDEO' || b.format === 'VIDEO') {
+          metrics.push(
+            { label: 'Hook Rate', aVal: a.hookRate > 0 ? `${fmt(a.hookRate, 1)}%` : '—', bVal: b.hookRate > 0 ? `${fmt(b.hookRate, 1)}%` : '—', aBetter: a.hookRate > b.hookRate ? true : a.hookRate < b.hookRate ? false : null },
+            { label: 'Hold Rate', aVal: a.holdRate > 0 ? `${fmt(a.holdRate, 1)}%` : '—', bVal: b.holdRate > 0 ? `${fmt(b.holdRate, 1)}%` : '—', aBetter: a.holdRate > b.holdRate ? true : a.holdRate < b.holdRate ? false : null },
+          );
+        }
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowCompareModal(false)}>
+            <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                <h2 className="text-sm font-bold text-gray-900">Comparaison A/B</h2>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => { setCompareIds([]); setShowCompareModal(false); }}
+                    className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700 bg-gray-100 rounded-lg">
+                    Réinitialiser
+                  </button>
+                  <button onClick={() => setShowCompareModal(false)}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* Creative headers */}
+              <div className="grid grid-cols-[1fr_1fr] gap-4 px-6 py-4">
+                {[a, b].map((c) => {
+                  const sig = SIGNAL_CONFIG[c.signal];
+                  return (
+                    <div key={c.creativeId} className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center flex-shrink-0">
+                        {c.thumbnailUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={c.thumbnailUrl} alt={c.creativeName} className="w-full h-full object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        ) : (
+                          <span className="text-gray-300 text-lg">{c.format === 'VIDEO' ? '▶' : '🖼'}</span>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-gray-900 truncate">{c.creativeName || c.rawName}</p>
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${sig.bg} ${sig.text}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${sig.dot}`} />
+                          {sig.label}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Metrics comparison */}
+              <div className="px-6 pb-6">
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-gray-400 font-semibold uppercase tracking-wide">Métrique</th>
+                        <th className="px-4 py-2 text-right text-gray-400 font-semibold uppercase tracking-wide">Créa A</th>
+                        <th className="px-4 py-2 text-right text-gray-400 font-semibold uppercase tracking-wide">Créa B</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {metrics.map((m) => (
+                        <tr key={m.label} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5 font-medium text-gray-700">{m.label}</td>
+                          <td className={`px-4 py-2.5 text-right font-mono ${
+                            m.aBetter === true ? 'text-green-600 font-semibold' : m.aBetter === false ? 'text-red-500' : 'text-gray-700'
+                          }`}>{m.aVal}</td>
+                          <td className={`px-4 py-2.5 text-right font-mono ${
+                            m.aBetter === false ? 'text-green-600 font-semibold' : m.aBetter === true ? 'text-red-500' : 'text-gray-700'
+                          }`}>{m.bVal}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      <FatigueDrawer creative={selectedCreative} onClose={() => setSelectedCreative(null)} datePreset={datePreset} />
     </div>
   );
 }
