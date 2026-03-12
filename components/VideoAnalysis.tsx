@@ -129,7 +129,7 @@ function parseVideoRows(ads: AdData[]): VideoRow[] {
     const clicks = parseFloat(insight.clicks ?? '0') || 0;
     const ctr = parseFloat(insight.ctr ?? '0') || 0;
     const cpm = parseFloat(insight.cpm ?? '0') || 0;
-    const videoViews3s = getActionValue(insight.video_play_actions, 'video_view');
+    const videoViews3s = getActionValue(insight.actions, 'video_view');
     const thruplay = getActionValue(insight.video_thruplay_watched_actions, 'video_view');
     const roas = insight.purchase_roas?.[0] ? parseFloat(insight.purchase_roas[0].value) || 0 : 0;
     const purchases = (() => {
