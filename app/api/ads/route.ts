@@ -18,6 +18,8 @@ export async function GET(request: Request) {
       'spend', 'impressions', 'reach', 'clicks',
       'ctr', 'cpc', 'cpm', 'frequency',
       'actions', 'action_values', 'purchase_roas',
+      'video_play_actions',
+      'video_thruplay_watched_actions',
     ].join(',');
 
     const params = new URLSearchParams({

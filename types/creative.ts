@@ -29,6 +29,8 @@ export interface AdInsight {
   actions?: AdInsightAction[];
   action_values?: AdInsightAction[];
   purchase_roas?: AdInsightAction[];
+  video_play_actions?: AdInsightAction[];
+  video_thruplay_watched_actions?: AdInsightAction[];
 }
 
 export interface AdData {

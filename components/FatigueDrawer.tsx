@@ -58,6 +58,8 @@ interface DailyInsight {
   actions?: AdInsightAction[];
   action_values?: AdInsightAction[];
   purchase_roas?: AdInsightAction[];
+  video_play_actions?: AdInsightAction[];
+  video_thruplay_watched_actions?: AdInsightAction[];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -88,8 +90,8 @@ function parseDailyInsights(raw: DailyInsight[]): DailyPoint[] {
     const roas = d.purchase_roas?.[0] ? parseFloat(d.purchase_roas[0].value) || 0
       : (spend > 0 && purchaseValue > 0 ? purchaseValue / spend : 0);
 
-    const videoViews3s = getActionValue(d.actions, ['video_view']);
-    const thruplay = getActionValue(d.actions, ['video_thruplay']);
+    const videoViews3s = getActionValue(d.video_play_actions, ['video_view']);
+    const thruplay = getActionValue(d.video_thruplay_watched_actions, ['video_view']);
     const hookRate = impressions > 0 ? (videoViews3s / impressions) * 100 : 0;
     const holdRate = videoViews3s > 0 ? (thruplay / videoViews3s) * 100 : 0;
 
@@ -189,8 +191,8 @@ export default function FatigueDrawer({ creative, onClose, datePreset = 'last_30
           prev.purchaseValue += pv;
           const roasVal = d.purchase_roas?.[0] ? parseFloat(d.purchase_roas[0].value) || 0 : 0;
           if (roasVal > 0) { prev.roasSum += roasVal * sp; prev.roasWeight += sp; }
-          prev.videoViews3s += getActionValue(d.actions, ['video_view']);
-          prev.thruplay += getActionValue(d.actions, ['video_thruplay']);
+          prev.videoViews3s += getActionValue(d.video_play_actions, ['video_view']);
+          prev.thruplay += getActionValue(d.video_thruplay_watched_actions, ['video_view']);
           dateMap.set(key, prev);
         }
       }

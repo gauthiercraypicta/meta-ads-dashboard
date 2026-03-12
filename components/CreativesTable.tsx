@@ -116,13 +116,15 @@ function parseAd(ad: AdData): Omit<ParsedCreative, 'signal'> {
 
   const cpa = purchases > 0 ? spend / purchases : 0;
 
-  // Video metrics
+  // Video metrics — these come from dedicated fields, not from 'actions'
   const videoViews3s = (() => {
-    const a = (insight?.actions ?? []).find((x) => x.action_type === 'video_view');
+    const arr = insight?.video_play_actions ?? [];
+    const a = arr.find((x) => x.action_type === 'video_view');
     return a ? parseFloat(a.value ?? '0') : 0;
   })();
   const thruplay = (() => {
-    const a = (insight?.actions ?? []).find((x) => x.action_type === 'video_thruplay');
+    const arr = insight?.video_thruplay_watched_actions ?? [];
+    const a = arr.find((x) => x.action_type === 'video_view');
     return a ? parseFloat(a.value ?? '0') : 0;
   })();
   const hookRate = impressions > 0 ? (videoViews3s / impressions) * 100 : 0;
