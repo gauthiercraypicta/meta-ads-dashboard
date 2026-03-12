@@ -12,6 +12,7 @@ import CreativesDiagnostic from './CreativesDiagnostic';
 import CreativeHealthPanel from './CreativeHealthPanel';
 import { IncrementalReachChart } from './charts';
 import FatigueDrawer from './FatigueDrawer';
+import WinningPatterns from './WinningPatterns';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PURCHASE_TYPES = [
@@ -483,6 +484,9 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
 
       {/* ── Diagnostic créatives ── */}
       <CreativesDiagnostic grouped={grouped} />
+
+      {/* ── Patterns gagnants ── */}
+      <WinningPatterns grouped={grouped} />
 
       {/* ── Creative Health (churn · hit rate · reliance) ── */}
       <CreativeHealthPanel creatives={grouped} />
