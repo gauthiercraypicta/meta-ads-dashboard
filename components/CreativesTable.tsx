@@ -122,7 +122,7 @@ function parseAd(ad: AdData): Omit<ParsedCreative, 'signal'> {
     return a ? parseFloat(a.value ?? '0') : 0;
   })();
   const thruplay = (() => {
-    const a = (insight?.actions ?? []).find((x) => x.action_type === 'video_thruplay_watched');
+    const a = (insight?.actions ?? []).find((x) => x.action_type === 'video_thruplay');
     return a ? parseFloat(a.value ?? '0') : 0;
   })();
   const hookRate = impressions > 0 ? (videoViews3s / impressions) * 100 : 0;
