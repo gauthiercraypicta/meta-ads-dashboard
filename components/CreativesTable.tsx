@@ -492,7 +492,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
       <CreativeHealthPanel creatives={grouped} />
 
       {/* ── Couverture incrémentale ── */}
-      <IncrementalReachChart creatives={grouped} />
+      <IncrementalReachChart datePreset={datePreset} />
 
       {/* ── Summary bar ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
