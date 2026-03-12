@@ -47,6 +47,16 @@ function IconTrophy() {
     </svg>
   );
 }
+function IconVideo() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtCurrency(n: number): string {
@@ -132,6 +142,20 @@ export default function CreativesDiagnostic({ grouped }: Props) {
     return { winner, others: stats.slice(1), status };
   }, [activeGroups]);
 
+  // ── Card 5: Santé Vidéo ───────────────────────────────────────────────────
+  const card5 = useMemo(() => {
+    const videos = activeGroups.filter((g) => g.format === 'VIDEO' && g.spend > 0);
+    if (videos.length === 0) return null;
+    const totalSpendV = videos.reduce((s, g) => s + g.spend, 0);
+    const totalImps   = videos.reduce((s, g) => s + g.impressions, 0);
+    const totalV3s    = videos.reduce((s, g) => s + g.videoViews3s, 0);
+    const totalThru   = videos.reduce((s, g) => s + g.thruplay, 0);
+    const avgHook = totalImps > 0 ? (totalV3s / totalImps) * 100 : 0;
+    const avgHold = totalV3s > 0 ? (totalThru / totalV3s) * 100 : 0;
+    const status: Status = avgHook >= 30 ? 'ok' : avgHook >= 15 ? 'warning' : 'critical';
+    return { avgHook, avgHold, count: videos.length, totalSpendV, status };
+  }, [activeGroups]);
+
   if (activeGroups.length === 0) return null;
 
   // ── Cards data ─────────────────────────────────────────────────────────────
@@ -212,6 +236,27 @@ export default function CreativesDiagnostic({ grouped }: Props) {
           ],
         }]
       : []),
+    ...(card5 !== null
+      ? [{
+          icon:       <IconVideo />,
+          sublabel:   'Vidéo',
+          label:      'Santé Vidéo',
+          status:     card5.status,
+          value:      `${card5.avgHook.toFixed(1)}%`,
+          valueLabel: `Hook Rate moy. · ${card5.count} vidéo${card5.count > 1 ? 's' : ''}`,
+          context:    `Hold Rate moy. ${card5.avgHold.toFixed(1)}% · ${fmtCurrency(card5.totalSpendV)} investis`,
+          action: card5.avgHook >= 30
+            ? '→ Vidéos performantes — maintenir le cap'
+            : card5.avgHook >= 15
+              ? '→ Hook moyen — retravailler les 3 premières secondes'
+              : '→ Hook critique — les vidéos ne captent pas l\'attention',
+          thresholds: [
+            { color: 'bg-green-400', label: 'Hook ≥ 30% : OK' },
+            { color: 'bg-amber-400', label: '15–30% : Attention' },
+            { color: 'bg-red-400',   label: '< 15% : Critique' },
+          ],
+        }]
+      : []),
   ];
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -220,7 +265,7 @@ export default function CreativesDiagnostic({ grouped }: Props) {
       <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
         Diagnostic créatives
       </h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
         {blocks.map((b, i) => {
           const s = STATUS_CFG[b.status];
           return (

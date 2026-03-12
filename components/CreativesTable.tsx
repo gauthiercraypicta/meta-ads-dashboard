@@ -115,6 +115,18 @@ function parseAd(ad: AdData): Omit<ParsedCreative, 'signal'> {
 
   const cpa = purchases > 0 ? spend / purchases : 0;
 
+  // Video metrics
+  const videoViews3s = (() => {
+    const a = (insight?.actions ?? []).find((x) => x.action_type === 'video_view');
+    return a ? parseFloat(a.value ?? '0') : 0;
+  })();
+  const thruplay = (() => {
+    const a = (insight?.actions ?? []).find((x) => x.action_type === 'video_thruplay_watched');
+    return a ? parseFloat(a.value ?? '0') : 0;
+  })();
+  const hookRate = impressions > 0 ? (videoViews3s / impressions) * 100 : 0;
+  const holdRate = videoViews3s > 0 ? (thruplay / videoViews3s) * 100 : 0;
+
   return {
     id:            ad.id,
     creativeId:    ad.creative?.id ?? '',
@@ -141,6 +153,10 @@ function parseAd(ad: AdData): Omit<ParsedCreative, 'signal'> {
     reach,
     clicks,
     purchaseValue,
+    videoViews3s,
+    thruplay,
+    hookRate,
+    holdRate,
   };
 }
 
@@ -178,6 +194,8 @@ function groupCreatives(creatives: ParsedCreative[]): GroupedCreative[] {
     const totalImpressions   = variants.reduce((s, v) => s + v.impressions,   0);
     const totalReach         = variants.reduce((s, v) => s + v.reach,         0);
     const totalClicks        = variants.reduce((s, v) => s + v.clicks,        0);
+    const totalVideoViews3s  = variants.reduce((s, v) => s + v.videoViews3s,  0);
+    const totalThruplay      = variants.reduce((s, v) => s + v.thruplay,      0);
 
     const roas      = totalSpend       > 0 ? totalPurchaseValue / totalSpend          : 0;
     const cpa       = totalPurchases   > 0 ? totalSpend         / totalPurchases      : 0;
@@ -187,8 +205,16 @@ function groupCreatives(creatives: ParsedCreative[]): GroupedCreative[] {
     const frequency = totalImpressions > 0
       ? variants.reduce((s, v) => s + v.frequency * v.impressions, 0) / totalImpressions
       : 0;
+    const hookRate  = totalImpressions   > 0 ? (totalVideoViews3s / totalImpressions) * 100 : 0;
+    const holdRate  = totalVideoViews3s  > 0 ? (totalThruplay / totalVideoViews3s) * 100    : 0;
 
-    const agg = { spend: totalSpend, roas, cpa, ctr, cpm, frequency, purchases: totalPurchases, reach: totalReach };
+    const agg = {
+      spend: totalSpend, roas, cpa, ctr, cpm, frequency,
+      purchases: totalPurchases, reach: totalReach,
+      impressions: totalImpressions, clicks: totalClicks,
+      videoViews3s: totalVideoViews3s, thruplay: totalThruplay,
+      hookRate, holdRate,
+    };
 
     groups.push({
       creativeId,
@@ -226,7 +252,7 @@ const FORMAT_CONFIG: Record<CreativeFormat, { label: string; color: string }> = 
 };
 
 // ─── Sort / Filter types ──────────────────────────────────────────────────────
-type SortKey = 'spend' | 'roas' | 'cpa' | 'ctr' | 'cpm' | 'frequency' | 'ageDays' | 'purchases';
+type SortKey = 'spend' | 'roas' | 'cpa' | 'ctr' | 'cpm' | 'frequency' | 'ageDays' | 'purchases' | 'hookRate' | 'holdRate';
 type SortDir = 'asc' | 'desc';
 type FilterFormat = 'ALL' | CreativeFormat;
 type FilterStatus = 'ALL' | 'ACTIVE' | 'PAUSED';
@@ -250,6 +276,16 @@ function freqColor(v: number): string {
   if (v > 3)   return 'text-orange-500 font-semibold';
   if (v > 2)   return 'text-yellow-600';
   return 'text-gray-700';
+}
+function hookColor(v: number): string {
+  if (v >= 30) return 'text-green-600 font-semibold';
+  if (v >= 15) return 'text-orange-500 font-semibold';
+  return 'text-red-600 font-semibold';
+}
+function holdColor(v: number): string {
+  if (v >= 25) return 'text-green-600 font-semibold';
+  if (v >= 10) return 'text-orange-500 font-semibold';
+  return 'text-red-600 font-semibold';
 }
 
 // ─── Th ───────────────────────────────────────────────────────────────────────
@@ -410,7 +446,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
     );
   }
 
-  const COL_COUNT = 10;
+  const showVideoMetrics = filterFormat === 'VIDEO';
+  const COL_COUNT = showVideoMetrics ? 12 : 10;
 
   return (
     <div className="space-y-4">
@@ -508,6 +545,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                 <Th label="CPA"    sortKey="cpa"       current={sortKey} dir={sortDir} onSort={handleSort} right />
                 <Th label="CTR"    sortKey="ctr"       current={sortKey} dir={sortDir} onSort={handleSort} right />
                 <Th label="CPM"    sortKey="cpm"       current={sortKey} dir={sortDir} onSort={handleSort} right />
+                {showVideoMetrics && <Th label="Hook Rate" sortKey="hookRate" current={sortKey} dir={sortDir} onSort={handleSort} right />}
+                {showVideoMetrics && <Th label="Hold Rate" sortKey="holdRate" current={sortKey} dir={sortDir} onSort={handleSort} right />}
                 <Th label="Fréq."  sortKey="frequency" current={sortKey} dir={sortDir} onSort={handleSort} right />
                 <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap">
                   Signal
@@ -621,6 +660,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                       {metricTd(g.cpa,       (n) => `${fmt(n, 2)}€`)}
                       {metricTd(g.ctr,       (n) => `${fmt(n, 2)}%`)}
                       {metricTd(g.cpm,       (n) => `${fmt(n, 2)}€`)}
+                      {showVideoMetrics && metricTd(g.hookRate, (n) => `${fmt(n, 1)}%`, hookColor)}
+                      {showVideoMetrics && metricTd(g.holdRate, (n) => `${fmt(n, 1)}%`, holdColor)}
                       {metricTd(g.frequency, (n) => fmt(n, 1),         freqColor)}
 
                       {/* Signal */}
@@ -662,6 +703,8 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                           {metricTd(v.cpa,       (n) => `${fmt(n, 2)}€`)}
                           {metricTd(v.ctr,       (n) => `${fmt(n, 2)}%`)}
                           {metricTd(v.cpm,       (n) => `${fmt(n, 2)}€`)}
+                          {showVideoMetrics && metricTd(v.hookRate, (n) => `${fmt(n, 1)}%`, hookColor)}
+                          {showVideoMetrics && metricTd(v.holdRate, (n) => `${fmt(n, 1)}%`, holdColor)}
                           {metricTd(v.frequency, (n) => fmt(n, 1),         freqColor)}
 
                           {/* Variant signal */}
