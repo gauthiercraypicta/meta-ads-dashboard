@@ -395,6 +395,11 @@ export default function VideoAnalysis({ refreshKey, datePreset = 'last_30d' }: P
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100">
           <h3 className="font-semibold text-gray-900 text-sm">Funnel d&apos;attention par créa</h3>
+          <div className="flex gap-4 mt-1.5 text-[10px] text-gray-400">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-400" /> Impressions (base 100%)</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-400" /> Hook Rate — % qui regardent 3s</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-orange-400" /> Hold Rate — % des 3s qui finissent la vidéo</span>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -439,14 +444,23 @@ export default function VideoAnalysis({ refreshKey, datePreset = 'last_30d' }: P
                     <td className={`px-4 py-2 text-right font-mono ${holdColor(row.holdRate)}`}>{row.holdRate.toFixed(1)}%</td>
                     {/* Funnel bar */}
                     <td className="px-4 py-2">
-                      <div className="flex h-3 w-24 rounded-full overflow-hidden bg-gray-100">
-                        <div className="bg-blue-400" style={{ width: '100%' }} title={`Impressions: ${row.impressions}`} />
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex h-2.5 w-20 rounded-full overflow-hidden bg-gray-100">
+                          <div className="bg-blue-400" style={{ width: '100%' }} />
+                        </div>
+                        <span className="text-[9px] text-gray-400 w-10">Impr.</span>
                       </div>
-                      <div className="flex h-3 w-24 rounded-full overflow-hidden bg-gray-100 mt-0.5">
-                        <div className="bg-green-400" style={{ width: `${Math.min(100, row.hookRate)}%` }} title={`Hook: ${row.hookRate.toFixed(1)}%`} />
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex h-2.5 w-20 rounded-full overflow-hidden bg-gray-100">
+                          <div className="bg-green-400" style={{ width: `${Math.min(100, row.hookRate)}%` }} />
+                        </div>
+                        <span className="text-[9px] text-gray-400 w-10">{row.hookRate.toFixed(0)}%</span>
                       </div>
-                      <div className="flex h-3 w-24 rounded-full overflow-hidden bg-gray-100 mt-0.5">
-                        <div className="bg-orange-400" style={{ width: `${Math.min(100, row.holdRate)}%` }} title={`Hold: ${row.holdRate.toFixed(1)}%`} />
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="flex h-2.5 w-20 rounded-full overflow-hidden bg-gray-100">
+                          <div className="bg-orange-400" style={{ width: `${Math.min(100, row.holdRate)}%` }} />
+                        </div>
+                        <span className="text-[9px] text-gray-400 w-10">{row.holdRate.toFixed(0)}%</span>
                       </div>
                     </td>
                     <td className="px-4 py-2 text-right text-gray-700 font-mono">{row.clicks.toLocaleString('fr-FR')}</td>
