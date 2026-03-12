@@ -11,7 +11,7 @@ import {
 import CreativesDiagnostic from './CreativesDiagnostic';
 import CreativeHealthPanel from './CreativeHealthPanel';
 import { IncrementalReachChart } from './charts';
-import CreativeDetailModal from './CreativeDetailModal';
+import FatigueDrawer from './FatigueDrawer';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const PURCHASE_TYPES = [
@@ -687,7 +687,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
         )}
       </div>
 
-      <CreativeDetailModal creative={selectedCreative} onClose={() => setSelectedCreative(null)} />
+      <FatigueDrawer creative={selectedCreative} onClose={() => setSelectedCreative(null)} datePreset={datePreset} />
     </div>
   );
 }
