@@ -992,8 +992,15 @@ export default function Dashboard() {
           dailyData={dailyData}
         />
 
-        {/* ── Week Heatmap ── */}
-        <WeekHeatmap dailyData={dailyData} />
+        {/* ── Heatmaps ── */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <WeekHeatmap dailyData={dailyData} />
+          <HeatmapHourDay
+            data={heatmapData}
+            timezoneName={heatmapTz?.name}
+            timezoneOffset={heatmapTz?.offset}
+          />
+        </div>
 
         {/* ── Advanced Analytics ── */}
         {!loading && (
@@ -1025,17 +1032,10 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* 3 — Heatmap Heure/Jour */}
-              <HeatmapHourDay
-                data={heatmapData}
-                timezoneName={heatmapTz?.name}
-                timezoneOffset={heatmapTz?.offset}
-              />
-
-              {/* 4 — Fatigue Créative */}
+              {/* 3 — Fatigue Créative */}
               <CreativeFatigueCurve data={creativeFatigueData} />
 
-              {/* 5 — Projection Budget */}
+              {/* 4 — Projection Budget */}
               {dailyPerfData.length > 0 ? (
                 <BudgetProjectionScenarios
                   dailyData={dailyPerfData}
