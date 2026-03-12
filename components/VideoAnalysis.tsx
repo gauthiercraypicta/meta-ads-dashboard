@@ -2,19 +2,13 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  ScatterChart,
-  Scatter,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
+  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, ReferenceLine, ReferenceArea,
+  LineChart, Line,
 } from 'recharts';
 import type { AdData, AdInsight, AdInsightAction } from '@/types/creative';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
+// ─── Types ──────────────────────────────────────────────────────────────────
 interface Props {
   refreshKey?: number;
   datePreset?: 'last_7d' | 'last_30d' | 'last_90d';
@@ -24,19 +18,32 @@ interface VideoRow {
   id: string;
   name: string;
   thumbnailUrl: string | null;
-  hookRate: number;       // 3s video views / impressions × 100
-  holdRate: number;       // thruplay or video_view / impressions × 100
+  ageDays: number;
+  hookRate: number;
+  holdRate: number;
   ctr: number;
   cpm: number;
   roas: number;
   spend: number;
   impressions: number;
+  videoViews3s: number;
+  thruplay: number;
+  clicks: number;
+  purchases: number;
   signal: string;
 }
 
-type SortKey = keyof Pick<VideoRow, 'name' | 'hookRate' | 'holdRate' | 'ctr' | 'cpm' | 'roas' | 'spend'>;
+interface DailyPoint {
+  date: string;
+  dateRaw: string;
+  hookRate: number;
+  holdRate: number;
+}
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+type SortKey = 'name' | 'ageDays' | 'hookRate' | 'holdRate' | 'ctr' | 'cpm' | 'roas' | 'spend' | 'impressions';
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+const PURCHASE_TYPES = ['omni_purchase', 'offsite_conversion.fb_pixel_purchase', 'purchase'];
 
 function getActionValue(actions: AdInsightAction[] | undefined, actionType: string): number {
   if (!actions) return 0;
@@ -45,12 +52,10 @@ function getActionValue(actions: AdInsightAction[] | undefined, actionType: stri
 }
 
 function isVideoAd(ad: AdData): boolean {
-  if (ad.creative?.video_id) return true;
-  if (ad.creative?.object_type?.toUpperCase().includes('VIDEO')) return true;
-  return false;
+  return !!ad.creative?.video_id || (ad.creative?.object_type?.toUpperCase().includes('VIDEO') ?? false);
 }
 
-function computeSignal(row: { hookRate: number; holdRate: number; roas: number; spend: number }): string {
+function computeSignal(row: { hookRate: number; roas: number; spend: number }): string {
   if (row.spend < 10) return 'NEW';
   if (row.hookRate >= 30 && row.roas >= 2) return 'SCALE';
   if (row.hookRate >= 20 && row.roas >= 1.5) return 'WATCH';
@@ -58,182 +63,223 @@ function computeSignal(row: { hookRate: number; holdRate: number; roas: number; 
   return 'FATIGUE';
 }
 
-function signalBadgeClass(signal: string): string {
-  switch (signal) {
-    case 'SCALE':   return 'bg-green-100 text-green-700';
-    case 'WATCH':   return 'bg-yellow-100 text-yellow-700';
-    case 'FATIGUE': return 'bg-orange-100 text-orange-700';
-    case 'CUT':     return 'bg-red-100 text-red-700';
-    case 'NEW':     return 'bg-blue-100 text-blue-700';
-    default:        return 'bg-gray-100 text-gray-700';
-  }
+function signalBadge(signal: string) {
+  const cfg: Record<string, { bg: string; text: string; dot: string; label: string }> = {
+    SCALE:   { bg: 'bg-green-100',  text: 'text-green-700',  dot: 'bg-green-500',  label: 'Scaler' },
+    WATCH:   { bg: 'bg-yellow-100', text: 'text-yellow-700', dot: 'bg-yellow-500', label: 'Surveiller' },
+    FATIGUE: { bg: 'bg-orange-100', text: 'text-orange-700', dot: 'bg-orange-500', label: 'Fatigue' },
+    CUT:     { bg: 'bg-red-100',    text: 'text-red-700',    dot: 'bg-red-500',    label: 'Couper' },
+    NEW:     { bg: 'bg-blue-100',   text: 'text-blue-700',   dot: 'bg-blue-400',   label: 'Nouveau' },
+  };
+  const c = cfg[signal] ?? cfg.NEW;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.bg} ${c.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      {c.label}
+    </span>
+  );
 }
 
-function hookRateClass(rate: number): string {
-  if (rate >= 30) return 'text-green-600 font-semibold';
-  if (rate >= 20) return 'text-yellow-600 font-semibold';
+function signalColor(signal: string): string {
+  if (signal === 'SCALE') return 'hsl(120,60%,45%)';
+  if (signal === 'WATCH') return 'hsl(45,90%,50%)';
+  return 'hsl(0,70%,50%)';
+}
+
+function hookColor(v: number): string {
+  if (v >= 30) return 'text-green-600 font-semibold';
+  if (v >= 15) return 'text-orange-500 font-semibold';
   return 'text-red-600 font-semibold';
 }
 
-function holdRateClass(rate: number): string {
-  if (rate >= 15) return 'text-green-600 font-semibold';
-  if (rate >= 8) return 'text-yellow-600 font-semibold';
+function holdColor(v: number): string {
+  if (v >= 25) return 'text-green-600 font-semibold';
+  if (v >= 10) return 'text-orange-500 font-semibold';
   return 'text-red-600 font-semibold';
 }
 
+function roasColor(v: number): string {
+  if (v >= 3) return 'text-green-600 font-bold';
+  if (v >= 2) return 'text-green-500';
+  if (v >= 1.5) return 'text-yellow-600';
+  if (v >= 1) return 'text-orange-500';
+  return 'text-red-500';
+}
+
+function fmtCurrency(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k€`;
+  return `${n.toFixed(0)}€`;
+}
+
+function fmt(n: number, d = 2) { return n.toFixed(d); }
+
+function getInterpretation(hook: number, hold: number): { text: string; color: string } {
+  if (hook >= 30 && hold >= 25) return { text: 'Créa saine — candidat au scale', color: 'text-green-600' };
+  if (hook >= 30 && hold < 25) return { text: 'Accroche efficace mais contenu ne retient pas — retravailler la suite', color: 'text-orange-600' };
+  if (hook < 30 && hold >= 25) return { text: 'Problème sur les 3 premières secondes — retravailler le début', color: 'text-yellow-600' };
+  return { text: 'Performance globale faible — envisager la coupe', color: 'text-red-600' };
+}
+
+// ─── Parse video rows ───────────────────────────────────────────────────────
 function parseVideoRows(ads: AdData[]): VideoRow[] {
-  const videoAds = ads.filter(isVideoAd);
-
-  return videoAds.map((ad) => {
+  return ads.filter(isVideoAd).map((ad) => {
     const insight: AdInsight = ad.insights?.data?.[0] ?? {};
     const impressions = parseFloat(insight.impressions ?? '0') || 0;
-    const spend       = parseFloat(insight.spend ?? '0') || 0;
-    const clicks      = parseFloat(insight.clicks ?? '0') || 0;
-    const ctr         = parseFloat(insight.ctr ?? '0') || 0;
-    const cpm         = parseFloat(insight.cpm ?? '0') || 0;
-
+    const spend = parseFloat(insight.spend ?? '0') || 0;
+    const clicks = parseFloat(insight.clicks ?? '0') || 0;
+    const ctr = parseFloat(insight.ctr ?? '0') || 0;
+    const cpm = parseFloat(insight.cpm ?? '0') || 0;
     const videoViews3s = getActionValue(insight.actions, 'video_view');
-    const thruplay     = getActionValue(insight.actions, 'video_thruplay_watched');
-
-    const roas = insight.purchase_roas?.[0]
-      ? parseFloat(insight.purchase_roas[0].value) || 0
-      : 0;
-
+    const thruplay = getActionValue(insight.actions, 'video_thruplay_watched');
+    const roas = insight.purchase_roas?.[0] ? parseFloat(insight.purchase_roas[0].value) || 0 : 0;
+    const purchases = (() => {
+      for (const t of PURCHASE_TYPES) {
+        const a = (insight.actions ?? []).find((x) => x.action_type === t);
+        if (a) return parseFloat(a.value) || 0;
+      }
+      return 0;
+    })();
     const hookRate = impressions > 0 ? (videoViews3s / impressions) * 100 : 0;
-    const holdRate = impressions > 0
-      ? (thruplay > 0 ? (thruplay / impressions) * 100 : (videoViews3s / impressions) * 100)
-      : 0;
+    const holdRate = videoViews3s > 0 ? (thruplay / videoViews3s) * 100 : 0;
+    const ageDays = Math.floor((Date.now() - new Date(ad.created_time).getTime()) / 86_400_000);
 
-    const partial: Omit<VideoRow, 'signal'> = {
-      id: ad.id,
-      name: ad.name,
-      thumbnailUrl: ad.creative?.thumbnail_url ?? null,
-      hookRate,
-      holdRate,
-      ctr,
-      cpm,
-      roas,
-      spend,
-      impressions,
-    };
-
-    return {
-      ...partial,
-      signal: computeSignal(partial),
-    };
+    const partial = { id: ad.id, name: ad.name, thumbnailUrl: ad.creative?.thumbnail_url ?? null, ageDays, hookRate, holdRate, ctr, cpm, roas, spend, impressions, videoViews3s, thruplay, clicks, purchases };
+    return { ...partial, signal: computeSignal(partial) };
   });
 }
 
-// ─── Scatter tooltip ──────────────────────────────────────────────────────────
-
+// ─── Tooltips ───────────────────────────────────────────────────────────────
 function ScatterTooltip({ active, payload }: { active?: boolean; payload?: { payload: VideoRow }[] }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs space-y-1 max-w-[220px]">
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs space-y-1 max-w-[240px]">
       <p className="font-semibold text-gray-800 truncate">{d.name}</p>
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-gray-600">
-        <span>Hook Rate</span>  <span className="font-mono text-right">{d.hookRate.toFixed(1)}%</span>
-        <span>ROAS</span>       <span className="font-mono text-right">{d.roas.toFixed(2)}x</span>
-        <span>Spend</span>      <span className="font-mono text-right">${d.spend.toLocaleString()}</span>
+        <span>Hook Rate</span><span className="font-mono text-right">{d.hookRate.toFixed(1)}%</span>
+        <span>Hold Rate</span><span className="font-mono text-right">{d.holdRate.toFixed(1)}%</span>
+        <span>Spend</span><span className="font-mono text-right">{fmtCurrency(d.spend)}</span>
+        <span>ROAS</span><span className="font-mono text-right">{d.roas.toFixed(2)}x</span>
       </div>
+      <div className="pt-1">{signalBadge(d.signal)}</div>
     </div>
   );
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function LineTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string; color: string }[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-2.5 text-xs space-y-1">
+      <p className="font-semibold text-gray-700">{label}</p>
+      {payload.map((p) => (
+        <div key={p.name} className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
+          <span className="text-gray-500">{p.name === 'hookRate' ? 'Hook Rate' : 'Hold Rate'}</span>
+          <span className="font-mono ml-auto">{p.value.toFixed(1)}%</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
+// ─── Component ──────────────────────────────────────────────────────────────
 export default function VideoAnalysis({ refreshKey, datePreset = 'last_30d' }: Props) {
   const [ads, setAds] = useState<AdData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('spend');
+  const [sortKey, setSortKey] = useState<SortKey>('hookRate');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [selectedCreative, setSelectedCreative] = useState<string | null>(null);
 
   const fetchAds = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const res = await fetch(`/api/ads?date_preset=${datePreset}`);
       const json = await res.json();
-      if (json.error) {
-        setError(json.error);
-        return;
-      }
+      if (json.error) { setError(json.error); return; }
       setAds(json.data ?? []);
-    } catch {
-      setError('Failed to fetch video ads data');
-    } finally {
-      setLoading(false);
-    }
+    } catch { setError('Erreur de chargement des données vidéo'); }
+    finally { setLoading(false); }
   }, [datePreset]);
 
-  useEffect(() => {
-    fetchAds();
-  }, [fetchAds, refreshKey]);
+  useEffect(() => { fetchAds(); }, [fetchAds, refreshKey]);
 
-  const rows = useMemo(() => parseVideoRows(ads), [ads]);
+  const allRows = useMemo(() => parseVideoRows(ads), [ads]);
+  const rows = useMemo(() => allRows.filter((r) => r.spend > 0), [allRows]);
 
-  // ── Macro KPIs ────────────────────────────────────────────────────────────
+  // ── Summary ────────────────────────────────────────────────────────────
+  const totalSpendAll = useMemo(() => {
+    return ads.reduce((s, ad) => s + (parseFloat(ad.insights?.data?.[0]?.spend ?? '0') || 0), 0);
+  }, [ads]);
 
-  const avgHookRate = useMemo(() => {
-    if (!rows.length) return 0;
-    return rows.reduce((s, r) => s + r.hookRate, 0) / rows.length;
-  }, [rows]);
+  const totalSpendVideo = useMemo(() => rows.reduce((s, r) => s + r.spend, 0), [rows]);
+  const totalImps = useMemo(() => rows.reduce((s, r) => s + r.impressions, 0), [rows]);
+  const totalV3s = useMemo(() => rows.reduce((s, r) => s + r.videoViews3s, 0), [rows]);
+  const totalThru = useMemo(() => rows.reduce((s, r) => s + r.thruplay, 0), [rows]);
 
-  const avgHoldRate = useMemo(() => {
-    if (!rows.length) return 0;
-    return rows.reduce((s, r) => s + r.holdRate, 0) / rows.length;
-  }, [rows]);
+  const avgHookRate = useMemo(() => totalImps > 0 ? (totalV3s / totalImps) * 100 : 0, [totalV3s, totalImps]);
+  const avgHoldRate = useMemo(() => totalV3s > 0 ? (totalThru / totalV3s) * 100 : 0, [totalThru, totalV3s]);
+  const spendPct = useMemo(() => totalSpendAll > 0 ? (totalSpendVideo / totalSpendAll) * 100 : 0, [totalSpendVideo, totalSpendAll]);
 
-  const bestPerformer = useMemo(() => {
-    if (!rows.length) return '—';
-    const best = rows.reduce((a, b) => (b.hookRate > a.hookRate ? b : a));
-    return best.name.length > 30 ? best.name.slice(0, 29) + '...' : best.name;
-  }, [rows]);
+  const roasComparison = useMemo(() => {
+    const videoSpend = rows.reduce((s, r) => s + r.spend, 0);
+    const videoPV = rows.reduce((s, r) => s + r.roas * r.spend, 0);
+    const videoRoas = videoSpend > 0 ? videoPV / videoSpend : 0;
 
-  // ── Sorted rows ───────────────────────────────────────────────────────────
+    const staticAds = ads.filter((ad) => !isVideoAd(ad));
+    const staticSpend = staticAds.reduce((s, ad) => s + (parseFloat(ad.insights?.data?.[0]?.spend ?? '0') || 0), 0);
+    const staticPV = staticAds.reduce((s, ad) => {
+      const roas = ad.insights?.data?.[0]?.purchase_roas?.[0]?.value;
+      const sp = parseFloat(ad.insights?.data?.[0]?.spend ?? '0') || 0;
+      return s + (roas ? parseFloat(roas) * sp : 0);
+    }, 0);
+    const staticRoas = staticSpend > 0 ? staticPV / staticSpend : 0;
 
+    return { videoRoas, staticRoas, better: videoRoas >= staticRoas };
+  }, [ads, rows]);
+
+  // ── Sort ────────────────────────────────────────────────────────────────
   const sortedRows = useMemo(() => {
     const copy = [...rows];
     copy.sort((a, b) => {
-      const av = a[sortKey];
-      const bv = b[sortKey];
-      if (typeof av === 'string' && typeof bv === 'string') {
-        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
-      }
-      const diff = (av as number) - (bv as number);
-      return sortDir === 'asc' ? diff : -diff;
+      const av = a[sortKey]; const bv = b[sortKey];
+      if (typeof av === 'string' && typeof bv === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
     return copy;
   }, [rows, sortKey, sortDir]);
 
   function handleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir('desc');
-    }
+    if (sortKey === key) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('desc'); }
   }
 
-  function sortIndicator(key: SortKey) {
+  function sortInd(key: SortKey) {
     if (sortKey !== key) return '';
-    return sortDir === 'asc' ? ' ▲' : ' ▼';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
   }
 
-  // ── Scatter data ──────────────────────────────────────────────────────────
+  // ── Selected creative for line chart ────────────────────────────────────
+  const defaultSelected = useMemo(() => {
+    if (!rows.length) return null;
+    return rows.reduce((a, b) => b.spend > a.spend ? b : a).id;
+  }, [rows]);
 
-  const scatterRows = useMemo(() => rows.filter((r) => r.spend > 0), [rows]);
-  const maxSpend = useMemo(() => Math.max(1, ...scatterRows.map((r) => r.spend)), [scatterRows]);
+  const activeSelected = selectedCreative ?? defaultSelected;
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Daily data (simulated from single-period for now) ──────────────────
+  // In real implementation, this would fetch from /api/ad-daily
+  // For now, show the scatter + table which are the most valuable
 
+  // ── Scatter data ────────────────────────────────────────────────────────
+  const maxSpend = useMemo(() => Math.max(1, ...rows.map((r) => r.spend)), [rows]);
+
+  // ── Render ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="h-48 flex items-center justify-center text-gray-400 text-sm animate-pulse">
-          Loading video analysis...
+        <div className="h-32 flex items-center justify-center text-gray-400 text-sm animate-pulse">
+          Chargement de l&apos;analyse vidéo…
         </div>
       </div>
     );
@@ -242,192 +288,267 @@ export default function VideoAnalysis({ refreshKey, datePreset = 'last_30d' }: P
   if (error) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="h-48 flex items-center justify-center text-red-500 text-sm">
-          {error}
-        </div>
+        <div className="h-32 flex items-center justify-center text-red-500 text-sm">{error}</div>
       </div>
     );
   }
 
-  if (!rows.length) {
-    return (
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="h-48 flex items-center justify-center text-gray-400 text-sm">
-          No video ads found for this period.
-        </div>
-      </div>
-    );
-  }
+  if (!rows.length) return null; // Hidden if no video creatives
 
   return (
     <div className="space-y-4">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div>
-        <h2 className="text-lg font-semibold text-gray-900">Video Performance Analysis</h2>
-        <p className="text-xs text-gray-500 mt-0.5">Hook &amp; hold metrics computed from 3-second video views</p>
+      {/* ── Section header ── */}
+      <div className="border-t border-gray-200 pt-6">
+        <h2 className="text-lg font-semibold text-gray-900">Analyse Vidéo</h2>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {rows.length} créa{rows.length > 1 ? 's' : ''} vidéo active{rows.length > 1 ? 's' : ''} · {fmtCurrency(totalSpendVideo)} spend · Hook Rate moy. {avgHookRate.toFixed(1)}% · Hold Rate moy. {avgHoldRate.toFixed(1)}%
+        </p>
       </div>
 
-      {/* ── Macro KPIs ─────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard label="Avg Hook Rate" value={`${avgHookRate.toFixed(1)}%`} sub="3s views / impressions" />
-        <KpiCard label="Avg Hold Rate" value={`${avgHoldRate.toFixed(1)}%`} sub="ThruPlay / impressions" />
-        <KpiCard label="Best Performer" value={bestPerformer} sub="Highest hook rate" small />
-        <KpiCard label="Videos Active" value={String(rows.length)} sub="With spend > $0" />
+      {/* ── Level 1: Diagnostic cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {/* Hook Rate moyen */}
+        <DiagCard
+          label="Hook Rate moyen"
+          value={`${avgHookRate.toFixed(1)}%`}
+          status={avgHookRate >= 30 ? 'ok' : avgHookRate >= 15 ? 'warning' : 'critical'}
+          detail="Vues 3s / Impressions (pond. spend)"
+          action={avgHookRate >= 30 ? 'Bonnes accroches — maintenir' : avgHookRate >= 15 ? 'Hook moyen — retravailler les 3 premières secondes' : 'Hook insuffisant — retravailler les 3 premières secondes'}
+        />
+        {/* Hold Rate moyen */}
+        <DiagCard
+          label="Hold Rate moyen"
+          value={`${avgHoldRate.toFixed(1)}%`}
+          status={avgHoldRate >= 25 ? 'ok' : avgHoldRate >= 10 ? 'warning' : 'critical'}
+          detail="ThruPlay / Vues 3s (pond. spend)"
+          action={avgHoldRate >= 25 ? 'Bonne rétention — le contenu engage' : avgHoldRate >= 10 ? 'Rétention moyenne — améliorer le mid-roll' : 'Rétention faible — le contenu ne retient pas'}
+        />
+        {/* Part spend vidéo */}
+        <DiagCard
+          label="Part spend vidéo"
+          value={`${spendPct.toFixed(0)}%`}
+          status={spendPct >= 50 ? 'ok' : spendPct >= 30 ? 'warning' : 'critical'}
+          detail={`${fmtCurrency(totalSpendVideo)} / ${fmtCurrency(totalSpendAll)}`}
+          action={spendPct >= 50 ? 'Budget vidéo bien réparti' : spendPct >= 30 ? 'Augmenter la part vidéo si ROAS favorable' : 'Budget vidéo trop faible — réévaluer l\'allocation'}
+        />
+        {/* ROAS vidéo vs statique */}
+        <DiagCard
+          label="ROAS vidéo vs statique"
+          value={`${roasComparison.videoRoas.toFixed(2)}x`}
+          status={roasComparison.better ? 'ok' : 'warning'}
+          detail={`vs ${roasComparison.staticRoas.toFixed(2)}x statique`}
+          action={roasComparison.better ? 'La vidéo surperforme — renforcer la prod vidéo' : 'Le statique surperforme — réévaluer le budget vidéo'}
+        />
       </div>
 
-      {/* ── Video Performance Table ────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900 text-sm">Video Performance Table</h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-2 text-left font-medium">Thumb</th>
-                <th className="px-4 py-2 text-left font-medium cursor-pointer select-none" onClick={() => handleSort('name')}>
-                  Name{sortIndicator('name')}
-                </th>
-                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('hookRate')}>
-                  Hook Rate{sortIndicator('hookRate')}
-                </th>
-                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('holdRate')}>
-                  Hold Rate{sortIndicator('holdRate')}
-                </th>
-                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('ctr')}>
-                  CTR{sortIndicator('ctr')}
-                </th>
-                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('cpm')}>
-                  CPM{sortIndicator('cpm')}
-                </th>
-                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('roas')}>
-                  ROAS{sortIndicator('roas')}
-                </th>
-                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('spend')}>
-                  Spend{sortIndicator('spend')}
-                </th>
-                <th className="px-4 py-2 text-center font-medium">Signal</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {sortedRows.map((row) => (
-                <tr key={row.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-2">
-                    {row.thumbnailUrl ? (
-                      <img
-                        src={row.thumbnailUrl}
-                        alt=""
-                        className="w-10 h-10 rounded object-cover"
-                      />
-                    ) : (
-                      <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-gray-400">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-gray-800 max-w-[200px] truncate" title={row.name}>
-                    {row.name}
-                  </td>
-                  <td className={`px-4 py-2 text-right font-mono ${hookRateClass(row.hookRate)}`}>
-                    {row.hookRate.toFixed(1)}%
-                  </td>
-                  <td className={`px-4 py-2 text-right font-mono ${holdRateClass(row.holdRate)}`}>
-                    {row.holdRate.toFixed(1)}%
-                  </td>
-                  <td className="px-4 py-2 text-right font-mono text-gray-700">
-                    {row.ctr.toFixed(2)}%
-                  </td>
-                  <td className="px-4 py-2 text-right font-mono text-gray-700">
-                    ${row.cpm.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-2 text-right font-mono text-gray-700">
-                    {row.roas.toFixed(2)}x
-                  </td>
-                  <td className="px-4 py-2 text-right font-mono text-gray-700">
-                    ${row.spend.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                  </td>
-                  <td className="px-4 py-2 text-center">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${signalBadgeClass(row.signal)}`}>
-                      {row.signal}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ── Scatter Plot: Hook Rate vs ROAS ────────────────────────────────── */}
+      {/* ── Level 4: Matrice Hook vs Hold (scatter) ── */}
       <div className="bg-white rounded-xl border border-gray-200 p-5">
         <div className="mb-3">
-          <h3 className="font-semibold text-gray-900 text-sm">Hook Rate vs ROAS</h3>
-          <p className="text-xs text-gray-500 mt-0.5">Dot size = spend</p>
+          <h3 className="font-semibold text-gray-900 text-sm">Matrice Hook vs Hold</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Taille = spend · Couleur = signal · Quadrant = diagnostic</p>
         </div>
-        {scatterRows.length > 0 ? (
-          <ResponsiveContainer width="100%" height={320}>
-            <ScatterChart margin={{ top: 10, right: 30, bottom: 30, left: 10 }}>
+        {rows.length > 0 ? (
+          <ResponsiveContainer width="100%" height={380}>
+            <ScatterChart margin={{ top: 20, right: 30, bottom: 30, left: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              {/* Quadrant backgrounds */}
+              <ReferenceArea x1={30} x2={100} y1={25} y2={100} fill="#dcfce7" fillOpacity={0.3} />
+              <ReferenceArea x1={0} x2={30} y1={25} y2={100} fill="#fef9c3" fillOpacity={0.3} />
+              <ReferenceArea x1={30} x2={100} y1={0} y2={25} fill="#ffedd5" fillOpacity={0.3} />
+              <ReferenceArea x1={0} x2={30} y1={0} y2={25} fill="#fee2e2" fillOpacity={0.3} />
               <XAxis
-                type="number"
-                dataKey="hookRate"
-                domain={[0, 'auto']}
+                type="number" dataKey="hookRate" domain={[0, 'auto']}
                 tickFormatter={(v: number) => `${v.toFixed(0)}%`}
-                tick={{ fontSize: 11, fill: '#6b7280' }}
+                tick={{ fontSize: 10, fill: '#6b7280' }}
                 label={{ value: 'Hook Rate (%)', position: 'insideBottom', offset: -10, fill: '#9ca3af', fontSize: 11 }}
               />
               <YAxis
-                type="number"
-                dataKey="roas"
-                domain={[0, 'auto']}
-                tickFormatter={(v: number) => `${v.toFixed(1)}x`}
-                tick={{ fontSize: 11, fill: '#6b7280' }}
-                label={{ value: 'ROAS', angle: -90, position: 'insideLeft', fill: '#9ca3af', fontSize: 11 }}
+                type="number" dataKey="holdRate" domain={[0, 'auto']}
+                tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                tick={{ fontSize: 10, fill: '#6b7280' }}
+                label={{ value: 'Hold Rate (%)', angle: -90, position: 'insideLeft', fill: '#9ca3af', fontSize: 11 }}
               />
+              <ReferenceLine x={30} stroke="#d1d5db" strokeDasharray="4 4" />
+              <ReferenceLine y={25} stroke="#d1d5db" strokeDasharray="4 4" />
               <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: '3 3' }} />
-              <Scatter data={scatterRows}>
-                {scatterRows.map((entry) => {
-                  const r = Math.max(6, Math.min(30, Math.sqrt(entry.spend / maxSpend) * 30));
-                  const color = entry.hookRate >= 30
-                    ? 'hsl(120,70%,45%)'
-                    : entry.hookRate >= 20
-                      ? 'hsl(45,90%,50%)'
-                      : 'hsl(0,75%,50%)';
-                  return (
-                    <Cell
-                      key={entry.id}
-                      fill={color}
-                      fillOpacity={0.7}
-                      r={r}
-                    />
-                  );
+              <Scatter data={rows}>
+                {rows.map((entry) => {
+                  const r = Math.max(8, Math.min(32, Math.sqrt(entry.spend / maxSpend) * 32));
+                  return <Cell key={entry.id} fill={signalColor(entry.signal)} fillOpacity={0.7} r={r} />;
                 })}
               </Scatter>
             </ScatterChart>
           </ResponsiveContainer>
         ) : (
-          <div className="h-64 flex items-center justify-center text-gray-400 text-sm">
-            No data for scatter plot
-          </div>
+          <div className="h-48 flex items-center justify-center text-gray-400 text-sm">Pas de données</div>
         )}
+        {/* Quadrant legend */}
+        <div className="flex flex-wrap gap-4 mt-3 text-[10px]">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100" /> Hook &gt; 30% + Hold &gt; 25% : A scaler</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-100" /> Hook &lt; 30% + Hold &gt; 25% : Retravailler le début</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-100" /> Hook &gt; 30% + Hold &lt; 25% : Contenu décevant</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-100" /> Hook &lt; 30% + Hold &lt; 25% : A couper</span>
+        </div>
+      </div>
+
+      {/* ── Level 2: Funnel table ── */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100">
+          <h3 className="font-semibold text-gray-900 text-sm">Funnel d&apos;attention par créa</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="bg-gray-50 text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-2 text-left font-medium">Créative</th>
+                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('ageDays')}>Âge{sortInd('ageDays')}</th>
+                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('impressions')}>Impr.{sortInd('impressions')}</th>
+                <th className="px-4 py-2 text-right font-medium">Vues 3s</th>
+                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('hookRate')}>Hook Rate{sortInd('hookRate')}</th>
+                <th className="px-4 py-2 text-right font-medium">ThruPlay</th>
+                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('holdRate')}>Hold Rate{sortInd('holdRate')}</th>
+                <th className="px-4 py-2 text-center font-medium">Funnel</th>
+                <th className="px-4 py-2 text-right font-medium">Clics</th>
+                <th className="px-4 py-2 text-right font-medium">Achats</th>
+                <th className="px-4 py-2 text-right font-medium cursor-pointer select-none" onClick={() => handleSort('roas')}>ROAS{sortInd('roas')}</th>
+                <th className="px-4 py-2 text-center font-medium">Signal</th>
+                <th className="px-4 py-2 w-6" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {sortedRows.map((row) => {
+                const interp = getInterpretation(row.hookRate, row.holdRate);
+                return (
+                  <tr key={row.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        {row.thumbnailUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={row.thumbnailUrl} alt="" className="w-8 h-8 rounded object-cover" />
+                        ) : (
+                          <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center text-gray-400 text-xs">▶</div>
+                        )}
+                        <span className="text-gray-800 truncate max-w-[140px]" title={row.name}>{row.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2 text-right text-gray-600">{row.ageDays}j</td>
+                    <td className="px-4 py-2 text-right text-gray-700 font-mono">{row.impressions.toLocaleString('fr-FR')}</td>
+                    <td className="px-4 py-2 text-right text-gray-700 font-mono">{row.videoViews3s.toLocaleString('fr-FR')}</td>
+                    <td className={`px-4 py-2 text-right font-mono ${hookColor(row.hookRate)}`}>{row.hookRate.toFixed(1)}%</td>
+                    <td className="px-4 py-2 text-right text-gray-700 font-mono">{row.thruplay.toLocaleString('fr-FR')}</td>
+                    <td className={`px-4 py-2 text-right font-mono ${holdColor(row.holdRate)}`}>{row.holdRate.toFixed(1)}%</td>
+                    {/* Funnel bar */}
+                    <td className="px-4 py-2">
+                      <div className="flex h-3 w-24 rounded-full overflow-hidden bg-gray-100">
+                        <div className="bg-blue-400" style={{ width: '100%' }} title={`Impressions: ${row.impressions}`} />
+                      </div>
+                      <div className="flex h-3 w-24 rounded-full overflow-hidden bg-gray-100 mt-0.5">
+                        <div className="bg-green-400" style={{ width: `${Math.min(100, row.hookRate)}%` }} title={`Hook: ${row.hookRate.toFixed(1)}%`} />
+                      </div>
+                      <div className="flex h-3 w-24 rounded-full overflow-hidden bg-gray-100 mt-0.5">
+                        <div className="bg-orange-400" style={{ width: `${Math.min(100, row.holdRate)}%` }} title={`Hold: ${row.holdRate.toFixed(1)}%`} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-2 text-right text-gray-700 font-mono">{row.clicks.toLocaleString('fr-FR')}</td>
+                    <td className="px-4 py-2 text-right text-gray-700 font-mono">{row.purchases > 0 ? row.purchases : '—'}</td>
+                    <td className={`px-4 py-2 text-right font-mono ${roasColor(row.roas)}`}>{row.roas > 0 ? `${row.roas.toFixed(2)}x` : '—'}</td>
+                    <td className="px-4 py-2 text-center">{signalBadge(row.signal)}</td>
+                    <td className="px-4 py-2">
+                      <span className="cursor-help text-gray-400 hover:text-gray-600" title={interp.text}>ⓘ</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="px-4 py-2 border-t border-gray-100 text-xs text-gray-400">
+          {rows.length} vidéo{rows.length > 1 ? 's' : ''} · Tri par défaut : Hook Rate décroissant
+        </div>
+      </div>
+
+      {/* ── Level 3: Hook & Hold Rate temporal curves ── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="mb-3">
+          <h3 className="font-semibold text-gray-900 text-sm">Évolution Hook & Hold Rate</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Sélectionne une créa pour l&apos;isoler · Seuils : Hook &gt; 30% · Hold &gt; 25%
+          </p>
+        </div>
+        {/* Creative selector pills */}
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {rows.slice(0, 10).map((r) => (
+            <button
+              key={r.id}
+              onClick={() => setSelectedCreative(r.id)}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${
+                activeSelected === r.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+            >
+              {r.name.length > 18 ? r.name.slice(0, 17) + '…' : r.name}
+            </button>
+          ))}
+        </div>
+        {/* Placeholder - shows current metrics as a summary since we don't have daily data per creative here */}
+        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {rows.filter((r) => activeSelected === r.id).map((r) => (
+              <div key={r.id} className="col-span-2 sm:col-span-4 space-y-2">
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="text-center">
+                    <p className="text-[10px] text-gray-400 uppercase">Hook Rate</p>
+                    <p className={`text-lg font-bold ${hookColor(r.hookRate)}`}>{r.hookRate.toFixed(1)}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-gray-400 uppercase">Hold Rate</p>
+                    <p className={`text-lg font-bold ${holdColor(r.holdRate)}`}>{r.holdRate.toFixed(1)}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-gray-400 uppercase">ROAS</p>
+                    <p className={`text-lg font-bold ${roasColor(r.roas)}`}>{r.roas.toFixed(2)}x</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-[10px] text-gray-400 uppercase">Spend</p>
+                    <p className="text-lg font-bold text-gray-900">{fmtCurrency(r.spend)}</p>
+                  </div>
+                </div>
+                <p className={`text-xs font-medium ${getInterpretation(r.hookRate, r.holdRate).color}`}>
+                  {getInterpretation(r.hookRate, r.holdRate).text}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
+// ─── Diagnostic Card ────────────────────────────────────────────────────────
+type DiagStatus = 'ok' | 'warning' | 'critical';
 
-function KpiCard({ label, value, sub, small }: { label: string; value: string; sub: string; small?: boolean }) {
+const DIAG_CFG: Record<DiagStatus, { badge: string; border: string; dot: string; label: string; actionColor: string }> = {
+  ok:       { badge: 'bg-green-100 text-green-700',  border: 'border-green-200 bg-green-50/50',  dot: 'bg-green-500',  label: 'OK',        actionColor: 'text-green-600' },
+  warning:  { badge: 'bg-amber-100 text-amber-700',  border: 'border-amber-200 bg-amber-50/50',  dot: 'bg-amber-500',  label: 'Attention', actionColor: 'text-amber-600' },
+  critical: { badge: 'bg-red-100 text-red-700',      border: 'border-red-200 bg-red-50/50',      dot: 'bg-red-500',    label: 'Critique',  actionColor: 'text-red-500'   },
+};
+
+function DiagCard({ label, value, status, detail, action }: {
+  label: string; value: string; status: DiagStatus; detail: string; action: string;
+}) {
+  const s = DIAG_CFG[status];
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
-      <p className="text-xs text-gray-500 mb-1">{label}</p>
-      <p className={`font-semibold text-gray-900 ${small ? 'text-sm truncate' : 'text-xl'}`} title={value}>
-        {value}
-      </p>
-      <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+    <div className={`border rounded-xl px-4 py-3.5 flex flex-col ${s.border}`}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-bold text-gray-600">{label}</p>
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${s.badge}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+          {s.label}
+        </span>
+      </div>
+      <p className="text-2xl font-extrabold text-gray-900 leading-none mb-0.5">{value}</p>
+      <p className="text-[11px] text-gray-400 mb-2">{detail}</p>
+      <p className={`text-[11px] font-semibold ${s.actionColor} mt-auto`}>{action}</p>
     </div>
   );
 }
