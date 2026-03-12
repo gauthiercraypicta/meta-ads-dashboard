@@ -372,17 +372,20 @@ export default function Dashboard() {
         });
       }
     }
-    return Array.from(grouped.entries()).map(([name, g]) => ({
-      name,
-      spend:       g.spend,
-      roas:        g.spend > 0 ? g.conversionValue / g.spend : 0,
-      conversions: g.conversions,
-      frequency:   g.impressions > 0
-        ? activeAdsets
-            .filter((a) => a.name === name && a.spend > 0)
-            .reduce((sum, a) => sum + a.frequency * a.impressions, 0) / g.impressions
-        : 0,
-    }));
+    return Array.from(grouped.entries())
+      .map(([name, g]) => ({
+        name,
+        spend:       g.spend,
+        roas:        g.spend > 0 ? g.conversionValue / g.spend : 0,
+        conversions: g.conversions,
+        frequency:   g.impressions > 0
+          ? activeAdsets
+              .filter((a) => a.name === name && a.spend > 0)
+              .reduce((sum, a) => sum + a.frequency * a.impressions, 0) / g.impressions
+          : 0,
+      }))
+      // Exclure les ROAS aberrants qui faussent l'échelle du scatter
+      .filter((d) => d.roas < 100);
   }, [activeAdsets]);
 
   // BudgetProjectionScenarios: convert InsightData[] → DailyPerf[]
