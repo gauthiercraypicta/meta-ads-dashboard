@@ -15,6 +15,7 @@ import FunnelDiagnostic from './FunnelDiagnostic';
 import TopAdSets from './TopAdSets';
 import WeekHeatmap from './WeekHeatmap';
 import VeilleDashboard from './VeilleDashboard';
+import ScorecardAcquisition from './ScorecardAcquisition';
 import {
   ScatterAdSetEfficiency,
   HeatmapHourDay,
@@ -183,7 +184,7 @@ export default function Dashboard() {
   const [loading, setLoading]         = useState(true);
   const [errors, setErrors]           = useState<FetchErrors>({});
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'veille'>('apercu');
+  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'veille' | 'scorecard'>('apercu');
   const [activeTab, setActiveTab]     = useState<'campaigns' | 'adsets'>('campaigns');
   const [refreshKey, setRefreshKey]   = useState(0);
   const [datePreset, setDatePreset]   = useState<DatePreset>('last_30d');
@@ -771,7 +772,8 @@ export default function Dashboard() {
             { key: 'apercu',     label: 'Aperçu',      icon: '📊' },
             { key: 'creatives',  label: 'Créatives',   icon: '🎨' },
             { key: 'veille',     label: 'Veille',      icon: '🔍' },
-          ] as { key: 'apercu' | 'creatives' | 'veille'; label: string; icon: string }[]).map((tab) => (
+            { key: 'scorecard',  label: 'Scorecard',   icon: '🎯' },
+          ] as { key: 'apercu' | 'creatives' | 'veille' | 'scorecard'; label: string; icon: string }[]).map((tab) => (
             <button
               key={tab.key}
               onClick={() => setMainTab(tab.key)}
@@ -803,6 +805,11 @@ export default function Dashboard() {
       {/* ═══ ONGLET VEILLE ═══ */}
       {mainTab === 'veille' && (
         <VeilleDashboard />
+      )}
+
+      {/* ═══ ONGLET SCORECARD ═══ */}
+      {mainTab === 'scorecard' && (
+        <ScorecardAcquisition />
       )}
 
       {/* ═══ ONGLET APERÇU ═══ */}
