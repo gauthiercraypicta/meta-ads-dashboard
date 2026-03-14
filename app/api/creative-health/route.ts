@@ -73,9 +73,22 @@ async function fetchAllPages<T>(
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const base = `https://graph.facebook.com/${API_VER}/${META_AD_ACCOUNT_ID}`;
+
+    // Explicit time_range including today
+    const { searchParams } = new URL(request.url);
+    const datePreset = searchParams.get('date_preset') ?? 'last_90d';
+    let days = 90;
+    if (datePreset === 'last_7d') days = 7;
+    else if (datePreset === 'last_30d') days = 30;
+    const today = new Date();
+    const since = new Date(today); since.setDate(today.getDate() - days);
+    const timeRange = JSON.stringify({
+      since: since.toISOString().split('T')[0],
+      until: today.toISOString().split('T')[0],
+    });
 
     // ── 1 & 2. Fetch ads metadata + weekly insights in parallel ─────────────
     const [adsMeta, rawInsights] = await Promise.all([
@@ -99,7 +112,7 @@ export async function GET() {
       }>(
         `${base}/insights?${new URLSearchParams({
           level:          'ad',
-          date_preset:    'last_90d',
+          time_range:     timeRange,
           time_increment: '7',
           fields:         'ad_id,spend,date_start',
           limit:          '5000',
