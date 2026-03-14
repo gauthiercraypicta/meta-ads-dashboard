@@ -2,32 +2,35 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import type { ReactNode } from 'react';
 import MetricCard from './MetricCard';
 import DataTable, { Column } from './DataTable';
 import DailyChart from './DailyChart';
 import ROIChart from './ROIChart';
-import CreativesTable from './CreativesTable';
-import VideoAnalysis from './VideoAnalysis';
-import StaticAnalysis from './StaticAnalysis';
 import BudgetPacing from './BudgetPacing';
 import FunnelDiagnostic from './FunnelDiagnostic';
 import TopAdSets from './TopAdSets';
 import WeekHeatmap from './WeekHeatmap';
-import VeilleDashboard from './VeilleDashboard';
-import ScorecardAcquisition from './ScorecardAcquisition';
-import {
-  ScatterAdSetEfficiency,
-  HeatmapHourDay,
-  CreativeFatigueCurve,
-  ConversionFunnelVisual,
-  BudgetProjectionScenarios,
-} from './charts';
 import type { AdSetDataPoint }        from './charts/ScatterAdSetEfficiency';
 import type { DailyPerf }             from './charts/BudgetProjectionScenarios';
 import type { FunnelData }            from './charts/ConversionFunnelVisual';
 import type { HeatmapCell }           from './charts/HeatmapHourDay';
 import type { CreativeFrequencyPoint } from './charts/CreativeFatigueCurve';
+
+// ── Lazy-loaded components (only loaded when their tab is active) ──
+const CreativesTable       = dynamic(() => import('./CreativesTable'),       { ssr: false });
+const VideoAnalysis        = dynamic(() => import('./VideoAnalysis'),        { ssr: false });
+const StaticAnalysis       = dynamic(() => import('./StaticAnalysis'),       { ssr: false });
+const VeilleDashboard      = dynamic(() => import('./VeilleDashboard'),      { ssr: false });
+const ScorecardAcquisition = dynamic(() => import('./ScorecardAcquisition'), { ssr: false });
+
+// ── Lazy-loaded chart components (heavy recharts bundle) ──
+const ScatterAdSetEfficiency   = dynamic(() => import('./charts/ScatterAdSetEfficiency'),   { ssr: false });
+const HeatmapHourDay           = dynamic(() => import('./charts/HeatmapHourDay'),           { ssr: false });
+const CreativeFatigueCurve     = dynamic(() => import('./charts/CreativeFatigueCurve'),     { ssr: false });
+const ConversionFunnelVisual   = dynamic(() => import('./charts/ConversionFunnelVisual'),   { ssr: false });
+const BudgetProjectionScenarios = dynamic(() => import('./charts/BudgetProjectionScenarios'), { ssr: false });
 
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics, InsightData } from '@/types/meta';
 import { processInsights, computeTotals, getStatusColor } from '@/lib/metaHelpers';
