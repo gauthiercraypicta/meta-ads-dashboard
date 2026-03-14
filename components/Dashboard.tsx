@@ -809,7 +809,7 @@ export default function Dashboard() {
 
       {/* ═══ ONGLET SCORECARD ═══ */}
       {mainTab === 'scorecard' && (
-        <ScorecardAcquisition />
+        <ScorecardAcquisition datePreset={datePreset} refreshKey={refreshKey} />
       )}
 
       {/* ═══ ONGLET APERÇU ═══ */}
