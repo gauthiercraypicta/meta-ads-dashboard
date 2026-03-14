@@ -11,9 +11,18 @@ const ANTHROPIC_KEY = () => process.env.ANTHROPIC_API_KEY ?? '';
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 interface RawAction { action_type: string; value: string }
 
-function actionVal(arr: RawAction[] = [], type: string): number {
-  const hit = arr.find((a) => a.action_type === type);
-  return hit ? parseFloat(hit.value) : 0;
+const PURCHASE_PRIORITY = [
+  'omni_purchase',
+  'offsite_conversion.fb_pixel_purchase',
+  'purchase',
+];
+
+function pickPurchaseVal(arr: RawAction[] = []): number {
+  for (const type of PURCHASE_PRIORITY) {
+    const hit = arr.find((a) => a.action_type === type);
+    if (hit) return parseFloat(hit.value) || 0;
+  }
+  return 0;
 }
 
 // ─── Claude ────────────────────────────────────────────────────────────────────
@@ -100,8 +109,8 @@ export async function GET(request: Request) {
         .map((ad) => {
           const ins         = ad.insights?.data?.[0];
           const spend       = parseFloat(ins?.spend ?? '0');
-          const purchases   = actionVal(ins?.actions, 'purchase');
-          const purchaseVal = actionVal(ins?.action_values, 'purchase');
+          const purchases   = pickPurchaseVal(ins?.actions);
+          const purchaseVal = pickPurchaseVal(ins?.action_values);
           const roas        = spend > 0 ? purchaseVal / spend : 0;
           const cpa         = purchases > 0 ? spend / purchases : 0;
           const ctr         = parseFloat(ins?.ctr ?? '0');

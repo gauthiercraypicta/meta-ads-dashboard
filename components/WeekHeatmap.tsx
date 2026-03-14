@@ -28,8 +28,19 @@ const RED_200:   [number, number, number] = [254, 202, 202];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getActionValue(actions: ActionData[] | undefined, type: string): number {
-  return parseFloat(actions?.find((a) => a.action_type === type)?.value ?? '0') || 0;
+const PURCHASE_PRIORITY = [
+  'omni_purchase',
+  'offsite_conversion.fb_pixel_purchase',
+  'purchase',
+] as const;
+
+function getPurchaseValue(actions: ActionData[] | undefined): number {
+  if (!actions) return 0;
+  for (const type of PURCHASE_PRIORITY) {
+    const hit = actions.find((a) => a.action_type === type);
+    if (hit) return parseFloat(hit.value ?? '0') || 0;
+  }
+  return 0;
 }
 
 function lerp(t: number, from: [number, number, number], to: [number, number, number]): string {
@@ -82,8 +93,8 @@ export default function WeekHeatmap({ dailyData }: Props) {
 
       const dow   = dt.getDay();
       const spend = parseFloat(day.spend ?? '0') || 0;
-      const conv  = getActionValue(day.actions, 'purchase');
-      const val   = getActionValue(day.action_values, 'purchase');
+      const conv  = getPurchaseValue(day.actions);
+      const val   = getPurchaseValue(day.action_values);
       const roas  = spend > 0 ? val / spend : 0;
       const cpa   = conv > 0  ? spend / conv : 0;
 
