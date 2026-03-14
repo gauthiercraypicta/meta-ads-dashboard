@@ -130,11 +130,12 @@ function ChartTooltip({ active, payload, label, currency = false }: TProps & { c
 
 interface Props {
   creatives: GroupedCreative[]; // period-aggregate data (for Chart 2)
+  datePreset?: string;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export default function CreativeHealthPanel({ creatives }: Props) {
+export default function CreativeHealthPanel({ creatives, datePreset = 'last_90d' }: Props) {
   const [open,       setOpen]       = useState(true);
   const [hitMarker,  setHitMarker]  = useState(2500);
   const [healthData, setHealthData] = useState<CreativeHealthData | null>(null);
@@ -146,7 +147,7 @@ export default function CreativeHealthPanel({ creatives }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res  = await fetch('/api/creative-health');
+      const res  = await fetch(`/api/creative-health?date_preset=${datePreset}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setHealthData(data as CreativeHealthData);
@@ -155,7 +156,7 @@ export default function CreativeHealthPanel({ creatives }: Props) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [datePreset]);
 
   useEffect(() => { fetchHealth(); }, [fetchHealth]);
 

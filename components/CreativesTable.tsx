@@ -492,7 +492,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
       <WinningPatterns grouped={grouped} />
 
       {/* ── Creative Health (churn · hit rate · reliance) ── */}
-      <CreativeHealthPanel creatives={grouped} />
+      <CreativeHealthPanel creatives={grouped} datePreset={datePreset} />
 
       {/* ── Couverture incrémentale ── */}
       <IncrementalReachChart datePreset={datePreset} />
