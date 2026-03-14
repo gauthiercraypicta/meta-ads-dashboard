@@ -33,7 +33,7 @@ interface ScorecardData {
   };
   creatives: {
     activeCount: number;
-    totalWithData: number;
+    totalAds: number;
     videoCount: number;
     staticCount: number;
     otherCount: number;
@@ -171,11 +171,11 @@ export default function ScorecardAcquisition({ datePreset = 'last_30d', refreshK
         borderColor: 'border-green-400/60',
         kpis: [
           {
-            label: 'Créas actives',
+            label: 'Créatives uniques',
             value: `${cr.activeCount}`,
             statusColor: (cr.activeCount > 10 ? 'green' : 'orange') as Status,
-            statusLabel: `${cr.totalWithData} avec données`,
-            subtitle: 'sur la période',
+            statusLabel: `dans ${cr.totalAds} ads actives`,
+            subtitle: 'dédupliquées par créa',
           },
           {
             label: 'Mix Static / Video',

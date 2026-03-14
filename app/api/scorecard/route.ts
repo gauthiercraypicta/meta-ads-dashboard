@@ -66,7 +66,7 @@ interface InsightRow {
 
 interface AdRow {
   id: string; name: string; status: string; created_time: string;
-  creative?: { object_type?: string; video_id?: string };
+  creative?: { id?: string; object_type?: string; video_id?: string };
   insights?: { data: (InsightRow & {
     video_play_actions?: Action[];
     video_thruplay_watched_actions?: Action[];
@@ -128,13 +128,13 @@ export async function GET(request: Request) {
         `${BASE}/ads?${new URLSearchParams({
           fields: [
             'name', 'status', 'created_time',
-            'creative{object_type,video_id}',
+            'creative{id,object_type,video_id}',
             `insights.date_preset(${datePreset}){spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions}`,
           ].join(','),
-          limit: '200',
+          limit: '500',
           access_token: META_ACCESS_TOKEN,
         })}`,
-        3,
+        6,
       ),
     ]);
 
@@ -142,11 +142,69 @@ export async function GET(request: Request) {
     const curr = parseInsight(currentRes.data?.[0] ?? {});
     const prev = parseInsight(previousRes.data?.[0] ?? {});
 
-    // ── Creative-level analysis ──────────────────────────────────────────────
-    const activeAds = adsData.filter(a => a.status === 'ACTIVE');
-    const adsWithInsights = adsData.filter(a => a.insights?.data?.[0]);
+    // ── Creative-level analysis (deduplicated by creative.id) ────────────────
+    // Only consider ACTIVE ads for all creative metrics
+    const activeAdsWithInsights = adsData.filter(
+      a => a.status === 'ACTIVE' && a.insights?.data?.[0],
+    );
 
-    // Format mix
+    // ── 1. Aggregate ads by creative.id ──────────────────────────────────────
+    interface CreativeAgg {
+      creativeId: string;
+      objectType: string;
+      hasVideoId: boolean;
+      oldestCreatedTime: string;
+      totalSpend: number;
+      totalConvValue: number;
+      totalImpressions: number;
+      totalVideoPlays: number;
+      totalThruPlays: number;
+    }
+
+    const creativeMap = new Map<string, CreativeAgg>();
+
+    for (const ad of activeAdsWithInsights) {
+      const cId = ad.creative?.id ?? ad.id; // fallback to ad.id if no creative.id
+      const ins = ad.insights!.data[0];
+      const spend       = parseFloat(ins.spend || '0');
+      const convVal     = pickPurchase(ins.action_values);
+      const impressions = parseInt(ins.impressions || '0', 10);
+      const videoPlays  = ins.video_play_actions
+        ? parseInt(ins.video_play_actions.find(a => a.action_type === 'video_view')?.value || '0', 10)
+        : 0;
+      const thruPlays   = ins.video_thruplay_watched_actions
+        ? parseInt(ins.video_thruplay_watched_actions.find(a => a.action_type === 'video_view')?.value || '0', 10)
+        : 0;
+
+      const existing = creativeMap.get(cId);
+      if (existing) {
+        existing.totalSpend       += spend;
+        existing.totalConvValue   += convVal;
+        existing.totalImpressions += impressions;
+        existing.totalVideoPlays  += videoPlays;
+        existing.totalThruPlays   += thruPlays;
+        // Keep oldest created_time
+        if (ad.created_time < existing.oldestCreatedTime) {
+          existing.oldestCreatedTime = ad.created_time;
+        }
+      } else {
+        creativeMap.set(cId, {
+          creativeId: cId,
+          objectType: ad.creative?.object_type?.toUpperCase() ?? '',
+          hasVideoId: !!ad.creative?.video_id,
+          oldestCreatedTime: ad.created_time || '',
+          totalSpend: spend,
+          totalConvValue: convVal,
+          totalImpressions: impressions,
+          totalVideoPlays: videoPlays,
+          totalThruPlays: thruPlays,
+        });
+      }
+    }
+
+    const creatives = Array.from(creativeMap.values());
+
+    // ── 2. Format mix (unique creatives) ─────────────────────────────────────
     let videoCount  = 0;
     let staticCount = 0;
     let otherCount  = 0;
@@ -154,75 +212,69 @@ export async function GET(request: Request) {
     let totalAgeDays = 0;
     let ageCount     = 0;
 
-    for (const ad of activeAds) {
-      const objType = ad.creative?.object_type?.toUpperCase() ?? '';
-      if (ad.creative?.video_id || objType.includes('VIDEO')) videoCount++;
-      else if (objType === 'IMAGE' || objType === 'LINK' || objType === 'SHARE') staticCount++;
+    for (const cr of creatives) {
+      if (cr.hasVideoId || cr.objectType.includes('VIDEO')) videoCount++;
+      else if (['IMAGE', 'LINK', 'SHARE'].includes(cr.objectType)) staticCount++;
       else otherCount++;
 
-      if (ad.created_time) {
-        const age = (now - new Date(ad.created_time).getTime()) / (1000 * 60 * 60 * 24);
-        totalAgeDays += age;
-        ageCount++;
+      if (cr.oldestCreatedTime) {
+        const age = (now - new Date(cr.oldestCreatedTime).getTime()) / (1000 * 60 * 60 * 24);
+        if (age > 0 && age < 365) { // sanity check
+          totalAgeDays += age;
+          ageCount++;
+        }
       }
     }
 
     const avgAgeDays = ageCount > 0 ? Math.round(totalAgeDays / ageCount) : 0;
 
-    // Win rate & spend concentration
+    // ── 3. Win rate & spend concentration (by creative) ──────────────────────
     let totalSpend = 0;
-    let maxAdSpend = 0;
     let winnersCount = 0;
-    const adSpends: number[] = [];
+    const creativeSpends: number[] = [];
 
-    for (const ad of adsWithInsights) {
-      const ins = ad.insights!.data[0];
-      const spend = parseFloat(ins.spend || '0');
-      const convVal = pickPurchase(ins.action_values);
-      const adRoas = spend > 0 ? convVal / spend : 0;
-      totalSpend += spend;
-      adSpends.push(spend);
-      if (spend > maxAdSpend) maxAdSpend = spend;
-      if (adRoas > curr.roas && spend > 0) winnersCount++;
+    for (const cr of creatives) {
+      totalSpend += cr.totalSpend;
+      creativeSpends.push(cr.totalSpend);
+      const crRoas = cr.totalSpend > 0 ? cr.totalConvValue / cr.totalSpend : 0;
+      if (crRoas > curr.roas && cr.totalSpend > 0) winnersCount++;
     }
 
-    const winRate = adsWithInsights.length > 0
-      ? (winnersCount / adsWithInsights.length) * 100
+    const winRate = creatives.length > 0
+      ? (winnersCount / creatives.length) * 100
       : 0;
 
-    // Top creative % of spend
-    adSpends.sort((a, b) => b - a);
-    const topCreativeSpendPct = totalSpend > 0 && adSpends.length > 0
-      ? (adSpends[0] / totalSpend) * 100
+    // Top creative % of total spend
+    creativeSpends.sort((a, b) => b - a);
+    const topCreativeSpendPct = totalSpend > 0 && creativeSpends.length > 0
+      ? (creativeSpends[0] / totalSpend) * 100
       : 0;
 
-    // Hook rate & hold rate (video ads only)
-    let hookRateSum = 0;
-    let holdRateSum = 0;
-    let videoAdsCount = 0;
+    // ── 4. Hook rate & hold rate (weighted by impressions) ───────────────────
+    let totalVideoImpressions = 0;
+    let weightedVideoPlays    = 0;
+    let weightedThruPlays     = 0;
+    let totalVideoPlaysForHold = 0;
 
-    for (const ad of adsWithInsights) {
-      const objType = ad.creative?.object_type?.toUpperCase() ?? '';
-      if (!(ad.creative?.video_id || objType.includes('VIDEO'))) continue;
+    for (const cr of creatives) {
+      if (!(cr.hasVideoId || cr.objectType.includes('VIDEO'))) continue;
+      if (cr.totalImpressions <= 0) continue;
 
-      const ins = ad.insights!.data[0];
-      const impressions = parseInt(ins.impressions || '0', 10);
-      const videoPlays = ins.video_play_actions
-        ? parseInt(ins.video_play_actions.find(a => a.action_type === 'video_view')?.value || '0', 10)
-        : 0;
-      const thruPlays = ins.video_thruplay_watched_actions
-        ? parseInt(ins.video_thruplay_watched_actions.find(a => a.action_type === 'video_view')?.value || '0', 10)
-        : 0;
+      totalVideoImpressions += cr.totalImpressions;
+      weightedVideoPlays    += cr.totalVideoPlays;
 
-      if (impressions > 0 && videoPlays > 0) {
-        hookRateSum += (videoPlays / impressions) * 100;
-        if (thruPlays > 0) holdRateSum += (thruPlays / videoPlays) * 100;
-        videoAdsCount++;
+      if (cr.totalVideoPlays > 0) {
+        weightedThruPlays     += cr.totalThruPlays;
+        totalVideoPlaysForHold += cr.totalVideoPlays;
       }
     }
 
-    const avgHookRate = videoAdsCount > 0 ? hookRateSum / videoAdsCount : 0;
-    const avgHoldRate = videoAdsCount > 0 ? holdRateSum / videoAdsCount : 0;
+    const avgHookRate = totalVideoImpressions > 0
+      ? (weightedVideoPlays / totalVideoImpressions) * 100
+      : 0;
+    const avgHoldRate = totalVideoPlaysForHold > 0
+      ? (weightedThruPlays / totalVideoPlaysForHold) * 100
+      : 0;
 
     // CVR
     const currCVR = curr.clicks > 0 ? (curr.conversions / curr.clicks) * 100 : 0;
@@ -234,8 +286,8 @@ export async function GET(request: Request) {
       current: curr,
       previous: prev,
       creatives: {
-        activeCount: activeAds.length,
-        totalWithData: adsWithInsights.length,
+        activeCount: creatives.length,
+        totalAds: activeAdsWithInsights.length,
         videoCount,
         staticCount,
         otherCount,
