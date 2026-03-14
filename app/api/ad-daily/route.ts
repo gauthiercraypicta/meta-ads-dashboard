@@ -1,6 +1,25 @@
 import { NextResponse } from 'next/server';
 
-const META_ACCESS_TOKEN  = process.env.META_ACCESS_TOKEN!;
+const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN!;
+
+/** Convert date_preset to explicit time_range including today */
+function toTimeRange(datePreset: string): { since: string; until: string } {
+  const today = new Date();
+  const until = today.toISOString().split('T')[0];
+
+  let days: number;
+  switch (datePreset) {
+    case 'last_7d':  days = 7;  break;
+    case 'last_90d': days = 90; break;
+    case 'last_30d':
+    default:         days = 30; break;
+  }
+
+  const since = new Date(today);
+  since.setDate(today.getDate() - days);
+
+  return { since: since.toISOString().split('T')[0], until };
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -10,6 +29,8 @@ export async function GET(request: Request) {
   if (!adId) {
     return NextResponse.json({ error: 'ad_id required' }, { status: 400 });
   }
+
+  const timeRange = toTimeRange(datePreset);
 
   try {
     const insightFields = [
@@ -22,14 +43,14 @@ export async function GET(request: Request) {
 
     const params = new URLSearchParams({
       fields: insightFields,
-      date_preset: datePreset,
+      time_range: JSON.stringify(timeRange),
       time_increment: '1',
       access_token: META_ACCESS_TOKEN,
     });
 
     const res = await fetch(
       `https://graph.facebook.com/v18.0/${adId}/insights?${params}`,
-      { next: { revalidate: 0 } },
+      { next: { revalidate: 120 } },
     );
     const data = await res.json();
 
