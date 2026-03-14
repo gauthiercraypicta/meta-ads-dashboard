@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 
 // ── Types ──
 type Status = 'green' | 'orange' | 'red';
@@ -20,7 +20,36 @@ interface ScorecardColumn {
   kpis: KPI[];
 }
 
-// ── Status dot component ──
+interface ScorecardData {
+  current: {
+    spend: number; impressions: number; reach: number; clicks: number;
+    ctr: number; cpc: number; cpm: number; frequency: number;
+    conversions: number; conversionValue: number; roas: number; cpa: number;
+  };
+  previous: {
+    spend: number; impressions: number; reach: number; clicks: number;
+    ctr: number; cpc: number; cpm: number; frequency: number;
+    conversions: number; conversionValue: number; roas: number; cpa: number;
+  };
+  creatives: {
+    activeCount: number;
+    totalWithData: number;
+    videoCount: number;
+    staticCount: number;
+    otherCount: number;
+    avgAgeDays: number;
+    winRate: number;
+    topCreativeSpendPct: number;
+    avgHookRate: number;
+    avgHoldRate: number;
+  };
+  derived: {
+    currCVR: number;
+    prevCVR: number;
+  };
+}
+
+// ── Helpers ──
 function StatusDot({ color }: { color: Status }) {
   const cls =
     color === 'green'  ? 'bg-emerald-400' :
@@ -29,91 +58,235 @@ function StatusDot({ color }: { color: Status }) {
   return <span className={`inline-block w-2 h-2 rounded-full ${cls} mr-1.5 flex-shrink-0`} />;
 }
 
-// ── Data ──
-const columns: ScorecardColumn[] = [
-  {
-    title: 'Trafic',
-    titleColor: 'text-yellow-400',
-    borderColor: 'border-yellow-400/60',
-    kpis: [
-      { label: 'Sessions totales',     value: '185k  vs  200k',    statusColor: 'orange', statusLabel: 'Obj. -7,5%',    subtitle: '/mois' },
-      { label: '% Paid vs Organic',    value: '62%  vs  38%',      statusColor: 'green',  statusLabel: 'Équilibré',      subtitle: '/mois' },
-      { label: 'Nouveaux visiteurs',   value: '78%',               statusColor: 'green',  statusLabel: 'Obj. 75%',       subtitle: '/mois' },
-      { label: 'Coût par session',     value: '0,42€  vs  0,35€',  statusColor: 'red',    statusLabel: 'Obj. +20%',      subtitle: '/mois' },
-    ],
-  },
-  {
-    title: 'Paid Media',
-    titleColor: 'text-rose-400',
-    borderColor: 'border-rose-400/60',
-    kpis: [
-      { label: 'Ad spend total',   value: '78k€  vs  85k€',     statusColor: 'green',  statusLabel: 'Budget -8%',  subtitle: '/mois' },
-      { label: 'CPM moyen',        value: '8,20€  vs  7,50€',   statusColor: 'orange', statusLabel: 'Obj. +9%',    subtitle: '/mois' },
-      { label: 'CTR moyen',        value: '1,8%  vs  2%',        statusColor: 'orange', statusLabel: 'Obj. -10%',   subtitle: '/mois' },
-      { label: 'Thumbstop rate',   value: '32%  vs  30%',        statusColor: 'green',  statusLabel: 'Obj. +6%',    subtitle: '/mois' },
-      { label: 'CPC moyen',        value: '0,58€  vs  0,50€',   statusColor: 'green',  statusLabel: 'Obj. +16%',   subtitle: '/mois' },
-    ],
-  },
-  {
-    title: 'Créa Production',
-    titleColor: 'text-green-400',
-    borderColor: 'border-green-400/60',
-    kpis: [
-      { label: 'Créas produites',  value: '45  vs  40',         statusColor: 'green',  statusLabel: 'Obj. +12%',   subtitle: '/mois' },
-      { label: 'Créas testées',    value: '38  vs  35',         statusColor: 'green',  statusLabel: 'Obj. +8%',    subtitle: '/mois' },
-      { label: 'Concept lancés',   value: '8  vs  10',          statusColor: 'red',    statusLabel: 'Obj. -20%',   subtitle: '/mois' },
-      { label: 'Mix Static/Video/UGC', value: '12 / 18 / 15',  statusColor: 'green',  statusLabel: 'Diversifié',   subtitle: '/mois' },
-      { label: 'Time to live',     value: '5J  vs  7J',         statusColor: 'red',    statusLabel: 'Obj. -28%',   subtitle: 'brief → live' },
-    ],
-  },
-  {
-    title: 'Créa Performance',
-    titleColor: 'text-cyan-400',
-    borderColor: 'border-cyan-400/60',
-    kpis: [
-      { label: 'Win rate',              value: '18%  vs  25%',    statusColor: 'red',    statusLabel: 'Obj. -28%',       subtitle: '/mois' },
-      { label: 'Créas scalées (>1K€)',  value: '7  vs  10',       statusColor: 'red',    statusLabel: 'Obj. -30%',       subtitle: '/mois' },
-      { label: 'Top créa % du spend',   value: '35%  vs  25%',    statusColor: 'red',    statusLabel: 'Concentration',   subtitle: '/mois' },
-      { label: 'Hook rate moyen',       value: '28%  vs  30%',    statusColor: 'orange', statusLabel: 'Obj. -6%',        subtitle: '/mois' },
-      { label: 'Créa fatigue',          value: '18J  vs  21J',    statusColor: 'orange', statusLabel: 'Obj. -7,5%',      subtitle: 'avant -30% perf' },
-    ],
-  },
-  {
-    title: 'Conversion',
-    titleColor: 'text-orange-400',
-    borderColor: 'border-orange-400/60',
-    kpis: [
-      { label: 'CVR site global',     value: '2,4%  vs  2,5%',    statusColor: 'orange', statusLabel: 'Obj. -4%',      subtitle: '/mois' },
-      { label: 'CVR Meta / Google',   value: '2,1% / 3,2%',       statusColor: 'green',  statusLabel: 'Google +52%',   subtitle: '/mois' },
-      { label: 'Taux ajout panier',   value: '8,5%  vs  9%',      statusColor: 'orange', statusLabel: 'Obj. -4%',      subtitle: '/mois' },
-      { label: 'Abandon panier',      value: '72%  vs  68%',       statusColor: 'red',    statusLabel: 'Obj. +4%',      subtitle: '/mois' },
-      { label: 'AOV',                 value: '68€  vs  65€',       statusColor: 'green',  statusLabel: 'Obj. +4,6%',    subtitle: '/mois' },
-    ],
-  },
-  {
-    title: 'Efficacité',
-    titleColor: 'text-purple-400',
-    borderColor: 'border-purple-400/60',
-    kpis: [
-      { label: 'CAC blended',          value: '28€  vs  25€',     statusColor: 'red',    statusLabel: 'Obj. +12%',    subtitle: '/mois' },
-      { label: 'CAC paid',             value: '42€  vs  38€',     statusColor: 'orange', statusLabel: 'Obj. +10%',    subtitle: '/mois' },
-      { label: 'ROAS blended',         value: '3.2x  vs  3.5x',   statusColor: 'orange', statusLabel: 'Obj. -8%',     subtitle: '/mois' },
-      { label: 'MER',                  value: '4.1x  vs  4x',     statusColor: 'green',  statusLabel: 'Obj. +2,5%',   subtitle: '/mois' },
-      { label: 'Contribution margin',  value: '22%  vs  25%',     statusColor: 'red',    statusLabel: 'Obj. -3pts',   subtitle: 'après ads' },
-    ],
-  },
-];
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
+  return Math.round(n).toLocaleString('fr-FR');
+}
+
+function fmtCur(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M€`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k€`;
+  return `${n.toFixed(2).replace('.', ',')}€`;
+}
+
+function fmtPct(n: number, decimals = 1): string {
+  return `${n.toFixed(decimals).replace('.', ',')}%`;
+}
+
+function fmtRoas(n: number): string {
+  return `${n.toFixed(2).replace('.', ',')}x`;
+}
+
+/** Build a comparison KPI with auto status color */
+function cmpKpi(
+  label: string,
+  currStr: string,
+  prevStr: string,
+  curr: number,
+  prev: number,
+  higherIsBetter: boolean,
+  subtitle: string,
+): KPI {
+  let statusLabel = '—';
+  let statusColor: Status = 'orange';
+
+  if (prev !== 0) {
+    const d = ((curr - prev) / prev) * 100;
+    const sign = d >= 0 ? '+' : '';
+    statusLabel = `${sign}${d.toFixed(1).replace('.', ',')}%`;
+    const improved = higherIsBetter ? d > 0 : d < 0;
+    const nearFlat = Math.abs(d) < 5;
+    statusColor = improved ? 'green' : nearFlat ? 'orange' : 'red';
+  }
+
+  return { label, value: `${currStr}  vs  ${prevStr}`, statusColor, statusLabel, subtitle };
+}
+
+function periodLabel(datePreset: string): string {
+  switch (datePreset) {
+    case 'last_7d':  return 'vs 7j précédents';
+    case 'last_30d': return 'vs 30j précédents';
+    case 'last_90d': return 'vs 90j précédents';
+    default:         return 'vs période précédente';
+  }
+}
+
+// ── Props ──
+interface Props {
+  datePreset?: string;
+  refreshKey?: number;
+}
 
 // ── Main component ──
-export default function ScorecardAcquisition() {
+export default function ScorecardAcquisition({ datePreset = 'last_30d', refreshKey = 0 }: Props) {
+  const [data, setData]       = useState<ScorecardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`/api/scorecard?date_preset=${datePreset}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { setError(d.error); setData(null); }
+        else setData(d);
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [datePreset, refreshKey]);
+
+  const columns: ScorecardColumn[] = useMemo(() => {
+    if (!data) return [];
+    const { current: c, previous: p, creatives: cr, derived } = data;
+    const sub = periodLabel(datePreset);
+
+    return [
+      {
+        title: 'Reach & Delivery',
+        titleColor: 'text-yellow-400',
+        borderColor: 'border-yellow-400/60',
+        kpis: [
+          cmpKpi('Impressions', fmtNum(c.impressions), fmtNum(p.impressions), c.impressions, p.impressions, true, sub),
+          cmpKpi('Reach',       fmtNum(c.reach),       fmtNum(p.reach),       c.reach,       p.reach,       true, sub),
+          cmpKpi('Clicks',      fmtNum(c.clicks),      fmtNum(p.clicks),      c.clicks,      p.clicks,      true, sub),
+          cmpKpi('Frequency',   c.frequency.toFixed(2), p.frequency.toFixed(2), c.frequency,  p.frequency,   false, sub),
+        ],
+      },
+      {
+        title: 'Paid Media',
+        titleColor: 'text-rose-400',
+        borderColor: 'border-rose-400/60',
+        kpis: [
+          cmpKpi('Ad spend total', fmtCur(c.spend), fmtCur(p.spend), c.spend, p.spend, false, sub),
+          cmpKpi('CPM moyen',      fmtCur(c.cpm),   fmtCur(p.cpm),   c.cpm,   p.cpm,   false, sub),
+          cmpKpi('CTR moyen',      fmtPct(c.ctr),   fmtPct(p.ctr),   c.ctr,   p.ctr,   true,  sub),
+          cmpKpi('CPC moyen',      fmtCur(c.cpc),   fmtCur(p.cpc),   c.cpc,   p.cpc,   false, sub),
+        ],
+      },
+      {
+        title: 'Créa Production',
+        titleColor: 'text-green-400',
+        borderColor: 'border-green-400/60',
+        kpis: [
+          {
+            label: 'Créas actives',
+            value: `${cr.activeCount}`,
+            statusColor: (cr.activeCount > 10 ? 'green' : 'orange') as Status,
+            statusLabel: `${cr.totalWithData} avec données`,
+            subtitle: 'sur la période',
+          },
+          {
+            label: 'Mix Static / Video',
+            value: `${cr.staticCount} / ${cr.videoCount}${cr.otherCount > 0 ? ` / ${cr.otherCount}` : ''}`,
+            statusColor: (cr.videoCount > 0 && cr.staticCount > 0 ? 'green' : 'orange') as Status,
+            statusLabel: 'Diversification',
+            subtitle: 'actives',
+          },
+          {
+            label: 'Âge moyen des créas',
+            value: `${cr.avgAgeDays}J`,
+            statusColor: (cr.avgAgeDays > 30 ? 'red' : cr.avgAgeDays > 14 ? 'orange' : 'green') as Status,
+            statusLabel: cr.avgAgeDays > 30 ? 'Créas vieillissantes' : cr.avgAgeDays > 14 ? 'À renouveler' : 'Créas fraîches',
+            subtitle: 'depuis création',
+          },
+        ],
+      },
+      {
+        title: 'Créa Performance',
+        titleColor: 'text-cyan-400',
+        borderColor: 'border-cyan-400/60',
+        kpis: [
+          {
+            label: 'Win rate',
+            value: fmtPct(cr.winRate),
+            statusColor: (cr.winRate > 30 ? 'green' : cr.winRate > 15 ? 'orange' : 'red') as Status,
+            statusLabel: `${Math.round(cr.winRate)}% > ROAS moyen`,
+            subtitle: 'créas au-dessus du ROAS moyen',
+          },
+          {
+            label: 'Top créa % du spend',
+            value: fmtPct(cr.topCreativeSpendPct),
+            statusColor: (cr.topCreativeSpendPct > 40 ? 'red' : cr.topCreativeSpendPct > 25 ? 'orange' : 'green') as Status,
+            statusLabel: cr.topCreativeSpendPct > 40 ? 'Trop concentré' : cr.topCreativeSpendPct > 25 ? 'Concentration' : 'Bien réparti',
+            subtitle: 'de la créa #1',
+          },
+          {
+            label: 'Hook rate moyen',
+            value: cr.avgHookRate > 0 ? fmtPct(cr.avgHookRate) : '—',
+            statusColor: (cr.avgHookRate > 30 ? 'green' : cr.avgHookRate > 20 ? 'orange' : cr.avgHookRate > 0 ? 'red' : 'orange') as Status,
+            statusLabel: cr.avgHookRate > 0 ? '3s views / impr.' : 'Pas de vidéo',
+            subtitle: 'vidéos uniquement',
+          },
+          {
+            label: 'Hold rate moyen',
+            value: cr.avgHoldRate > 0 ? fmtPct(cr.avgHoldRate) : '—',
+            statusColor: (cr.avgHoldRate > 20 ? 'green' : cr.avgHoldRate > 10 ? 'orange' : cr.avgHoldRate > 0 ? 'red' : 'orange') as Status,
+            statusLabel: cr.avgHoldRate > 0 ? 'thruplay / 3s views' : 'Pas de vidéo',
+            subtitle: 'vidéos uniquement',
+          },
+        ],
+      },
+      {
+        title: 'Conversion',
+        titleColor: 'text-orange-400',
+        borderColor: 'border-orange-400/60',
+        kpis: [
+          cmpKpi('Conversions', fmtNum(c.conversions),      fmtNum(p.conversions),      c.conversions,      p.conversions,      true,  sub),
+          cmpKpi('CVR',         fmtPct(derived.currCVR),     fmtPct(derived.prevCVR),     derived.currCVR,    derived.prevCVR,    true,  sub),
+          cmpKpi('CPA',         fmtCur(c.cpa),               fmtCur(p.cpa),               c.cpa,              p.cpa,              false, sub),
+          cmpKpi('Revenue',     fmtCur(c.conversionValue),   fmtCur(p.conversionValue),   c.conversionValue,  p.conversionValue,  true,  sub),
+        ],
+      },
+      {
+        title: 'Efficacité',
+        titleColor: 'text-purple-400',
+        borderColor: 'border-purple-400/60',
+        kpis: [
+          cmpKpi('ROAS',             fmtRoas(c.roas), fmtRoas(p.roas), c.roas, p.roas, true,  sub),
+          cmpKpi('CPA',              fmtCur(c.cpa),   fmtCur(p.cpa),   c.cpa,  p.cpa,  false, sub),
+          cmpKpi('Spend',            fmtCur(c.spend),  fmtCur(p.spend),  c.spend,  p.spend,  false, sub),
+          cmpKpi('Revenue total',    fmtCur(c.conversionValue), fmtCur(p.conversionValue), c.conversionValue, p.conversionValue, true, sub),
+        ],
+      },
+    ];
+  }, [data, datePreset]);
+
+  // ── Loading state ──
+  if (loading) {
+    return (
+      <div className="min-h-[400px] bg-gray-950 rounded-2xl p-10 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-400 mx-auto mb-4" />
+          <p className="text-gray-400 text-sm">Chargement de la scorecard…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Error state ──
+  if (error || !data) {
+    return (
+      <div className="min-h-[400px] bg-gray-950 rounded-2xl p-10 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-400 text-sm mb-2">Erreur lors du chargement</p>
+          <p className="text-gray-500 text-xs">{error ?? 'Données indisponibles'}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-950 rounded-2xl p-6 md:p-10">
+    <div className="bg-gray-950 rounded-2xl p-6 md:p-10">
       {/* Header */}
       <div className="text-center mb-10">
         <h1 className="text-3xl md:text-4xl font-bold text-white">
           Scorecard <span className="italic text-blue-400">Acquisition</span>
         </h1>
-        <p className="text-gray-400 mt-2 text-sm">E-commerce / D2C – Marque à 3M€/an</p>
+        <p className="text-gray-400 mt-2 text-sm">
+          Données Meta Ads — {periodLabel(datePreset)}
+        </p>
       </div>
 
       {/* Columns grid */}
@@ -160,18 +333,18 @@ export default function ScorecardAcquisition() {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-6 mt-8 text-xs text-gray-400">
+      <div className="flex flex-wrap items-center gap-6 mt-8 text-xs text-gray-400">
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-400" />
-          Objectif atteint
+          En amélioration
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400" />
-          À surveiller
+          Stable / À surveiller
         </span>
         <span className="flex items-center gap-1.5">
           <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500" />
-          Action requise
+          En déclin
         </span>
       </div>
     </div>
