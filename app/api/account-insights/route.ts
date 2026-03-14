@@ -4,25 +4,40 @@ import { InsightData, MetaApiResponse } from '@/types/meta';
 const API_VERSION = 'v18.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
+function getPeriodDays(datePreset: string): number | null {
+  switch (datePreset) {
+    case 'last_7d':  return 7;
+    case 'last_30d': return 30;
+    case 'last_90d': return 90;
+    default: return null;
+  }
+}
+
+const fmt = (d: Date) => d.toISOString().split('T')[0];
+
+/** Current period: N days ago → today (inclusive) */
+function getCurrentRange(datePreset: string): { since: string; until: string } | null {
+  const days = getPeriodDays(datePreset);
+  if (!days) return null;
+  const today = new Date();
+  const since = new Date(today);
+  since.setDate(today.getDate() - days);
+  return { since: fmt(since), until: fmt(today) };
+}
+
+/** Previous period: 2N days ago → N days ago */
 function getPreviousPeriodRange(datePreset: string): { since: string; until: string } | null {
+  const days = getPeriodDays(datePreset);
+  if (!days) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  let periodDays: number;
-  switch (datePreset) {
-    case 'last_7d':  periodDays = 7;  break;
-    case 'last_30d': periodDays = 30; break;
-    case 'last_90d': periodDays = 90; break;
-    default: return null;
-  }
-
   const until = new Date(today);
-  until.setDate(today.getDate() - periodDays);
+  until.setDate(today.getDate() - days);
 
   const since = new Date(until);
-  since.setDate(until.getDate() - periodDays);
+  since.setDate(until.getDate() - days);
 
-  const fmt = (d: Date) => d.toISOString().split('T')[0];
   return { since: fmt(since), until: fmt(until) };
 }
 
@@ -53,7 +68,12 @@ export async function GET(request: Request) {
     }
     timeParams = { time_range: JSON.stringify(range) };
   } else {
-    timeParams = { date_preset: datePreset };
+    const range = getCurrentRange(datePreset);
+    if (range) {
+      timeParams = { time_range: JSON.stringify(range) };
+    } else {
+      timeParams = { date_preset: datePreset };
+    }
   }
 
   try {

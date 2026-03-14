@@ -33,12 +33,20 @@ function getPeriodDays(preset: string): number {
   }
 }
 
+const fmt = (d: Date) => d.toISOString().split('T')[0];
+
+function getCurrentRange(preset: string): { since: string; until: string } {
+  const days  = getPeriodDays(preset);
+  const today = new Date();
+  const since = new Date(today); since.setDate(today.getDate() - days);
+  return { since: fmt(since), until: fmt(today) };
+}
+
 function getPreviousRange(preset: string): { since: string; until: string } {
   const days  = getPeriodDays(preset);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const until = new Date(today); until.setDate(today.getDate() - days);
   const since = new Date(until); since.setDate(until.getDate() - days);
-  const fmt   = (d: Date) => d.toISOString().split('T')[0];
   return { since: fmt(since), until: fmt(until) };
 }
 
@@ -106,6 +114,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
+  const currRange  = getCurrentRange(datePreset);
   const prevRange  = getPreviousRange(datePreset);
 
   const insightFields = 'spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas';
@@ -113,9 +122,9 @@ export async function GET(request: Request) {
   try {
     // ── Parallel fetches ─────────────────────────────────────────────────────
     const [currentRes, previousRes, adsData] = await Promise.all([
-      // 1. Account insights — current period
+      // 1. Account insights — current period (explicit range including today)
       fetch(`${BASE}/insights?${new URLSearchParams({
-        fields: insightFields, date_preset: datePreset, access_token: META_ACCESS_TOKEN,
+        fields: insightFields, time_range: JSON.stringify(currRange), access_token: META_ACCESS_TOKEN,
       })}`, { next: { revalidate: 120 } }).then(r => r.json()),
 
       // 2. Account insights — previous period

@@ -3,6 +3,25 @@ import { NextResponse } from 'next/server';
 const API_VERSION = 'v18.0';
 const BASE_URL    = `https://graph.facebook.com/${API_VERSION}`;
 
+/** Convert date_preset to explicit time_range including today */
+function toTimeRange(datePreset: string): { since: string; until: string } {
+  const today = new Date();
+  const until = today.toISOString().split('T')[0];
+
+  let days: number;
+  switch (datePreset) {
+    case 'last_7d':  days = 7;  break;
+    case 'last_90d': days = 90; break;
+    case 'last_30d':
+    default:         days = 30; break;
+  }
+
+  const since = new Date(today);
+  since.setDate(today.getDate() - days);
+
+  return { since: since.toISOString().split('T')[0], until };
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface RawHourlyRow {
@@ -67,11 +86,12 @@ export async function GET(request: Request) {
       fields:       'timezone_name,timezone_offset_hours_utc',
       access_token: META_ACCESS_TOKEN,
     });
+    const timeRange = toTimeRange(datePreset);
     const insightParams = new URLSearchParams({
       fields:         'spend,impressions,clicks,ctr,actions,action_values,purchase_roas',
       time_increment: '1',
       breakdowns:     'hourly_stats_aggregated_by_advertiser_time_zone',
-      date_preset:    datePreset,
+      time_range:     JSON.stringify(timeRange),
       access_token:   META_ACCESS_TOKEN,
       limit:          '5000',
     });
