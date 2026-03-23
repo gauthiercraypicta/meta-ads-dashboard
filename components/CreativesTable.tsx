@@ -480,7 +480,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
   }
 
   const showVideoMetrics = filterFormat === 'VIDEO';
-  const COL_COUNT = (showVideoMetrics ? 12 : 10) + 1; // +1 for Vie rest.
+  const COL_COUNT = (showVideoMetrics ? 12 : 10) + 2; // +1 Vie rest. +1 Analyse
 
   return (
     <div className="space-y-4">
@@ -607,6 +607,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                 <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-400 whitespace-nowrap">
                   Signal
                 </th>
+                <th className="px-3 py-3 w-10" />
               </tr>
             </thead>
 
@@ -762,6 +763,19 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
 
                       {/* Signal */}
                       <td className="px-3 py-2.5">{signalPill(g.signal)}</td>
+
+                      {/* Analyse button */}
+                      <td className="px-2 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => setSelectedCreative(g)}
+                          className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-gray-50 hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors group"
+                          title="Voir l'analyse"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                        </button>
+                      </td>
                     </tr>
                   );
 
@@ -808,6 +822,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
 
                           {/* Variant signal */}
                           <td className="px-3 py-2">{signalPill(v.signal)}</td>
+                          <td className="px-2 py-2" />
                         </tr>
                       ))
                     : [];
