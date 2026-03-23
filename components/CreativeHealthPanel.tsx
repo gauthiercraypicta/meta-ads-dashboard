@@ -237,6 +237,25 @@ export default function CreativeHealthPanel({ creatives, datePreset = 'last_90d'
       weekMap.set(wk, prev);
     }
 
+    // Fill in missing weeks up to today so the chart doesn't stop early
+    const sortedKeys = [...weekMap.keys()].sort();
+    if (sortedKeys.length > 0) {
+      const today = new Date();
+      const day = today.getDay();
+      const diff = (day === 0 ? -6 : 1 - day);
+      today.setDate(today.getDate() + diff);
+      const todayKey = today.toISOString().slice(0, 10);
+
+      let cursor = new Date(sortedKeys[0] + 'T00:00:00');
+      while (cursor.toISOString().slice(0, 10) <= todayKey) {
+        const key = cursor.toISOString().slice(0, 10);
+        if (!weekMap.has(key)) {
+          weekMap.set(key, { hitVideo: 0, hitStatic: 0, otherVideo: 0, otherStatic: 0 });
+        }
+        cursor.setDate(cursor.getDate() + 7);
+      }
+    }
+
     let cumulative = 0;
     const rows = [...weekMap.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
