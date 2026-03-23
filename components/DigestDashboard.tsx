@@ -294,7 +294,7 @@ function CreaThumbnail({ url, alt }: { url?: string; alt: string }) {
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={url} alt={alt} className="w-20 h-20 object-cover rounded-lg flex-shrink-0 border border-gray-200" />
+    <img src={url} alt={alt} loading="lazy" className="w-20 h-20 object-cover rounded-lg flex-shrink-0 border border-gray-200" />
   );
 }
 

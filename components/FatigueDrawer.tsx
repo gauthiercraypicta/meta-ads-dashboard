@@ -306,7 +306,7 @@ export default function FatigueDrawer({ creative, onClose, datePreset = 'last_30
             <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-gray-100 flex items-center justify-center">
               {g.thumbnailUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={g.thumbnailUrl} alt={g.creativeName} className="w-full h-full object-cover"
+                <img src={g.thumbnailUrl} alt={g.creativeName} loading="lazy" className="w-full h-full object-cover"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               ) : (
                 <span className="text-gray-300 text-lg">
