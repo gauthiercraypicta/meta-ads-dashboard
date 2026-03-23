@@ -80,13 +80,19 @@ export async function GET(request: Request) {
     // Explicit time_range including today
     const { searchParams } = new URL(request.url);
     const datePreset = searchParams.get('date_preset') ?? 'last_90d';
-    let days = 90;
-    if (datePreset === 'last_7d') days = 7;
-    else if (datePreset === 'last_30d') days = 30;
     const today = new Date();
-    const since = new Date(today); since.setDate(today.getDate() - days);
+    let sinceDate: string;
+    if (datePreset === 'since_dec_1') {
+      sinceDate = '2025-12-01';
+    } else {
+      let days = 90;
+      if (datePreset === 'last_7d') days = 7;
+      else if (datePreset === 'last_30d') days = 30;
+      const since = new Date(today); since.setDate(today.getDate() - days);
+      sinceDate = since.toISOString().split('T')[0];
+    }
     const timeRange = JSON.stringify({
-      since: since.toISOString().split('T')[0],
+      since: sinceDate,
       until: today.toISOString().split('T')[0],
     });
 

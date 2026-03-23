@@ -21,6 +21,11 @@ export async function GET(request: Request) {
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
   const cacheKey = `campaigns:${META_AD_ACCOUNT_ID}:${datePreset}`;
 
+  const insightFields = 'spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas';
+  const insightsClause = datePreset === 'since_dec_1'
+    ? `insights.time_range({"since":"2025-12-01","until":"${new Date().toISOString().split('T')[0]}"}){${insightFields}}`
+    : `insights.date_preset(${datePreset}){${insightFields}}`;
+
   try {
     const data = await withCache<MetaApiResponse<Campaign>>(cacheKey, TTL, async () => {
       const fields = [
@@ -28,7 +33,7 @@ export async function GET(request: Request) {
         'name',
         'status',
         'objective',
-        `insights.date_preset(${datePreset}){spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas}`,
+        insightsClause,
       ].join(',');
 
       const params = new URLSearchParams({

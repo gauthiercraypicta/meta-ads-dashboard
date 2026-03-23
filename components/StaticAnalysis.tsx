@@ -10,7 +10,7 @@ import type { AdData, AdInsight, AdInsightAction } from '@/types/creative';
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Props {
   refreshKey?: number;
-  datePreset?: 'last_7d' | 'last_30d' | 'last_90d';
+  datePreset?: 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
 }
 
 interface StaticRow {

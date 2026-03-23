@@ -16,6 +16,10 @@ function toTimeRange(datePreset: string): { since: string; until: string } {
   yesterday.setDate(today.getDate() - 1);
   const until = yesterday.toISOString().split('T')[0];
 
+  if (datePreset === 'since_dec_1') {
+    return { since: '2025-12-01', until };
+  }
+
   let days: number;
   switch (datePreset) {
     case 'last_7d':  days = 7;  break;
