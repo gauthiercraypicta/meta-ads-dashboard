@@ -262,7 +262,7 @@ export default function VideoAnalysis({ refreshKey, datePreset = 'last_30d' }: P
   // ── Selected creative for line chart ────────────────────────────────────
   const defaultSelected = useMemo(() => {
     if (!rows.length) return null;
-    return rows.reduce((a, b) => b.spend > a.spend ? b : a).id;
+    return '__all__';
   }, [rows]);
 
   const activeSelected = selectedCreative ?? defaultSelected;
@@ -491,48 +491,118 @@ export default function VideoAnalysis({ refreshKey, datePreset = 'last_30d' }: P
         </div>
         {/* Creative selector pills */}
         <div className="flex flex-wrap gap-1.5 mb-4">
-          {rows.slice(0, 10).map((r) => (
+          <button
+            onClick={() => setSelectedCreative('__all__')}
+            className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${
+              activeSelected === '__all__' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >
+            All ({rows.length})
+          </button>
+          {rows.map((r) => (
             <button
               key={r.id}
               onClick={() => setSelectedCreative(r.id)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${
+              className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors flex items-center gap-1.5 ${
                 activeSelected === r.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
             >
+              {r.thumbnailUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={r.thumbnailUrl} alt="" className="w-4 h-4 rounded-sm object-cover" />
+              )}
               {r.name.length > 18 ? r.name.slice(0, 17) + '…' : r.name}
             </button>
           ))}
         </div>
-        {/* Placeholder - shows current metrics as a summary since we don't have daily data per creative here */}
-        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+
+        {/* Selected creative detail or all-creatives grid */}
+        {activeSelected === '__all__' ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {rows.map((r) => {
+              const interp = getInterpretation(r.hookRate, r.holdRate);
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => setSelectedCreative(r.id)}
+                  className="bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-blue-300 hover:shadow-sm transition-all group"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    {r.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={r.thumbnailUrl} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 text-sm">▶</div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium text-gray-800 truncate" title={r.name}>{r.name}</p>
+                      <p className="text-[10px] text-gray-400">{r.ageDays}j · {fmtCurrency(r.spend)}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                    <div>
+                      <span className="text-gray-400">Hook</span>
+                      <span className={`ml-1 font-mono font-semibold ${hookColor(r.hookRate)}`}>{r.hookRate.toFixed(1)}%</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Hold</span>
+                      <span className={`ml-1 font-mono font-semibold ${holdColor(r.holdRate)}`}>{r.holdRate.toFixed(1)}%</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">ROAS</span>
+                      <span className={`ml-1 font-mono font-semibold ${roasColor(r.roas)}`}>{r.roas > 0 ? `${r.roas.toFixed(2)}x` : '—'}</span>
+                    </div>
+                    <div>{signalBadge(r.signal)}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
             {rows.filter((r) => activeSelected === r.id).map((r) => (
-              <div key={r.id} className="col-span-2 sm:col-span-4 space-y-2">
-                <div className="grid grid-cols-4 gap-3">
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">Hook Rate</p>
-                    <p className={`text-lg font-bold ${hookColor(r.hookRate)}`}>{r.hookRate.toFixed(1)}%</p>
+              <div key={r.id} className="flex gap-5 items-start">
+                {/* Thumbnail preview */}
+                <div className="shrink-0">
+                  {r.thumbnailUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={r.thumbnailUrl} alt={r.name} className="w-28 h-28 rounded-xl object-cover border border-gray-200" />
+                  ) : (
+                    <div className="w-28 h-28 rounded-xl bg-gray-200 flex items-center justify-center text-gray-400 text-2xl">▶</div>
+                  )}
+                  <p className="text-[10px] text-gray-500 mt-1.5 text-center truncate max-w-[112px]" title={r.name}>{r.name}</p>
+                </div>
+                {/* Metrics */}
+                <div className="flex-1 space-y-3">
+                  <div className="grid grid-cols-4 gap-3">
+                    <div className="text-center">
+                      <p className="text-[10px] text-gray-400 uppercase">Hook Rate</p>
+                      <p className={`text-lg font-bold ${hookColor(r.hookRate)}`}>{r.hookRate.toFixed(1)}%</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[10px] text-gray-400 uppercase">Hold Rate</p>
+                      <p className={`text-lg font-bold ${holdColor(r.holdRate)}`}>{r.holdRate.toFixed(1)}%</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[10px] text-gray-400 uppercase">ROAS</p>
+                      <p className={`text-lg font-bold ${roasColor(r.roas)}`}>{r.roas.toFixed(2)}x</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[10px] text-gray-400 uppercase">Spend</p>
+                      <p className="text-lg font-bold text-gray-900">{fmtCurrency(r.spend)}</p>
+                    </div>
                   </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">Hold Rate</p>
-                    <p className={`text-lg font-bold ${holdColor(r.holdRate)}`}>{r.holdRate.toFixed(1)}%</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">ROAS</p>
-                    <p className={`text-lg font-bold ${roasColor(r.roas)}`}>{r.roas.toFixed(2)}x</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">Spend</p>
-                    <p className="text-lg font-bold text-gray-900">{fmtCurrency(r.spend)}</p>
+                  <div className="flex items-center gap-2">
+                    {signalBadge(r.signal)}
+                    <p className={`text-xs font-medium ${getInterpretation(r.hookRate, r.holdRate).color}`}>
+                      {getInterpretation(r.hookRate, r.holdRate).text}
+                    </p>
                   </div>
                 </div>
-                <p className={`text-xs font-medium ${getInterpretation(r.hookRate, r.holdRate).color}`}>
-                  {getInterpretation(r.hookRate, r.holdRate).text}
-                </p>
               </div>
             ))}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
