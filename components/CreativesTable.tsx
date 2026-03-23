@@ -894,7 +894,7 @@ export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d'
                       <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex items-center justify-center flex-shrink-0">
                         {c.thumbnailUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={c.thumbnailUrl} alt={c.creativeName} className="w-full h-full object-cover"
+                          <img src={c.thumbnailUrl} alt={c.creativeName} loading="lazy" className="w-full h-full object-cover"
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                         ) : (
                           <span className="text-gray-300 text-lg">{c.format === 'VIDEO' ? '▶' : '🖼'}</span>

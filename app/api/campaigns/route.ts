@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import { Campaign, MetaApiResponse } from '@/types/meta';
+import { withCache } from '@/lib/apiCache';
 
 const API_VERSION = 'v18.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
+const TTL = 5 * 60 * 1000; // 5 min
 
 export async function GET(request: Request) {
   const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
@@ -17,26 +19,29 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
+  const cacheKey = `campaigns:${META_AD_ACCOUNT_ID}:${datePreset}`;
 
   try {
-    const fields = [
-      'id',
-      'name',
-      'status',
-      'objective',
-      `insights.date_preset(${datePreset}){spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas}`,
-    ].join(',');
+    const data = await withCache<MetaApiResponse<Campaign>>(cacheKey, TTL, async () => {
+      const fields = [
+        'id',
+        'name',
+        'status',
+        'objective',
+        `insights.date_preset(${datePreset}){spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas}`,
+      ].join(',');
 
-    const params = new URLSearchParams({
-      fields,
-      access_token: META_ACCESS_TOKEN,
-      limit: '100',
+      const params = new URLSearchParams({
+        fields,
+        access_token: META_ACCESS_TOKEN!,
+        limit: '100',
+      });
+
+      const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/campaigns?${params.toString()}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
     });
-
-    const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/campaigns?${params.toString()}`;
-
-    const response = await fetch(url, { next: { revalidate: 300 } });
-    const data: MetaApiResponse<Campaign> = await response.json();
 
     if (data.error) {
       return NextResponse.json(
@@ -45,14 +50,9 @@ export async function GET(request: Request) {
       );
     }
 
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: `Erreur HTTP ${response.status} lors de l'appel à Meta API` },
-        { status: response.status }
-      );
-    }
-
-    return NextResponse.json(data);
+    return NextResponse.json(data, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur inconnue';
     return NextResponse.json(

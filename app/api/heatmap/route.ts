@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { withCache } from '@/lib/apiCache';
+
+const TTL = 15 * 60 * 1000; // 15 min (hourly historical data)
 
 const API_VERSION = 'v18.0';
 const BASE_URL    = `https://graph.facebook.com/${API_VERSION}`;
@@ -80,11 +83,17 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
 
+  const cacheKey = `heatmap:${META_AD_ACCOUNT_ID}:${datePreset}`;
+
   try {
+    const result = await withCache<{ data: HeatmapApiCell[]; timezoneName: string; timezoneOffset: number }>(
+      cacheKey,
+      TTL,
+      async () => {
     // Fetch account timezone + insights in parallel
     const tzParams = new URLSearchParams({
       fields:       'timezone_name,timezone_offset_hours_utc',
-      access_token: META_ACCESS_TOKEN,
+      access_token: META_ACCESS_TOKEN!,
     });
     const timeRange = toTimeRange(datePreset);
     const insightParams = new URLSearchParams({
@@ -92,13 +101,13 @@ export async function GET(request: Request) {
       time_increment: '1',
       breakdowns:     'hourly_stats_aggregated_by_advertiser_time_zone',
       time_range:     JSON.stringify(timeRange),
-      access_token:   META_ACCESS_TOKEN,
+      access_token:   META_ACCESS_TOKEN!,
       limit:          '5000',
     });
 
     const [tzRes, insightRes] = await Promise.all([
-      fetch(`${BASE_URL}/${META_AD_ACCOUNT_ID}?${tzParams}`, { next: { revalidate: 86400 } }), // 24h — timezone rarely changes
-      fetch(`${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${insightParams}`, { next: { revalidate: 900 } }),
+      fetch(`${BASE_URL}/${META_AD_ACCOUNT_ID}?${tzParams}`),
+      fetch(`${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${insightParams}`),
     ]);
 
     const [tzJson, json] = await Promise.all([tzRes.json(), insightRes.json()]);
@@ -106,12 +115,7 @@ export async function GET(request: Request) {
     const timezoneName:   string = tzJson.timezone_name ?? 'UTC';
     const timezoneOffset: number = tzJson.timezone_offset_hours_utc ?? 0;
 
-    if (json.error) {
-      return NextResponse.json(
-        { error: `Meta API: ${json.error.message} (code ${json.error.code})` },
-        { status: 400 },
-      );
-    }
+    if (json.error) throw new Error(`Meta API: ${json.error.message} (code ${json.error.code})`);
 
     const rows: RawHourlyRow[] = json.data ?? [];
 
@@ -177,7 +181,13 @@ export async function GET(request: Request) {
       cells.push({ day, hour, roas, spend: b.spend, conversions: b.conversions, ctr });
     }
 
-    return NextResponse.json({ data: cells, timezoneName, timezoneOffset });
+    return { data: cells, timezoneName, timezoneOffset };
+      }, // end withCache fn
+    );
+
+    return NextResponse.json(result, {
+      headers: { 'Cache-Control': 'private, max-age=900, stale-while-revalidate=1800' },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur inconnue';
     return NextResponse.json({ error: `Impossible de joindre Meta API : ${message}` }, { status: 503 });

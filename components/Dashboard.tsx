@@ -6,12 +6,14 @@ import dynamic from 'next/dynamic';
 import type { ReactNode } from 'react';
 import MetricCard from './MetricCard';
 import DataTable, { Column } from './DataTable';
-import DailyChart from './DailyChart';
-import ROIChart from './ROIChart';
 import BudgetPacing from './BudgetPacing';
 import FunnelDiagnostic from './FunnelDiagnostic';
 import TopAdSets from './TopAdSets';
 import WeekHeatmap from './WeekHeatmap';
+
+// Recharts-heavy components — lazy-loaded to keep initial bundle small
+const DailyChart = dynamic(() => import('./DailyChart'), { ssr: false });
+const ROIChart   = dynamic(() => import('./ROIChart'),   { ssr: false });
 import type { AdSetDataPoint }        from './charts/ScatterAdSetEfficiency';
 import type { DailyPerf }             from './charts/BudgetProjectionScenarios';
 import type { FunnelData }            from './charts/ConversionFunnelVisual';
@@ -202,21 +204,23 @@ export default function Dashboard() {
   const [creativeFatigueData, setCreativeFatigueData] = useState<CreativeFrequencyPoint[]>([]);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
+  //
+  // Two-phase loading strategy:
+  //   Phase 1 (critical) — campaigns, adsets, account-overview, daily
+  //                        → renders KPI cards & tables as soon as these resolve
+  //   Phase 2 (deferred) — heatmap, creative-fatigue, adsets7d
+  //                        → fills in background charts after the page is visible
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setErrors({});
 
-    const [campaignsResult, adsetsResult, prevResult, currAccResult, dailyResult, monthlyResult, adsets7dResult, heatmapResult, fatigueCreativeResult] = await Promise.allSettled([
+    // ── Phase 1: critical data ──────────────────────────────────────────────
+    const [campaignsResult, adsetsResult, overviewResult, dailyResult] = await Promise.allSettled([
       fetch(`/api/campaigns?date_preset=${datePreset}`).then((r) => r.json()),
       fetch(`/api/adsets?date_preset=${datePreset}`).then((r) => r.json()),
-      fetch(`/api/account-insights?date_preset=${datePreset}&mode=previous`).then((r) => r.json()),
-      fetch(`/api/account-insights?date_preset=${datePreset}`).then((r) => r.json()),
+      fetch(`/api/account-overview?date_preset=${datePreset}`).then((r) => r.json()),
       fetch(`/api/daily?date_preset=${datePreset}`).then((r) => r.json()),
-      fetch(`/api/account-insights?date_preset=this_month`).then((r) => r.json()),
-      fetch(`/api/adsets?date_preset=last_7d`).then((r) => r.json()),
-      fetch(`/api/heatmap?date_preset=${datePreset}`).then((r) => r.json()),
-      fetch(`/api/creative-fatigue?date_preset=${datePreset}`).then((r) => r.json()),
     ]);
 
     const newErrors: FetchErrors = {};
@@ -235,52 +239,35 @@ export default function Dashboard() {
       newErrors.adsets = 'Impossible de joindre /api/adsets';
     }
 
-    if (
-      prevResult.status === 'fulfilled' &&
-      !prevResult.value.error &&
-      prevResult.value.data?.[0]
-    ) {
-      setComparison(processInsights(prevResult.value.data[0]));
-    } else {
-      setComparison(null);
-    }
-
-    if (
-      currAccResult.status === 'fulfilled' &&
-      !currAccResult.value.error &&
-      currAccResult.value.data?.[0]
-    ) {
-      setCurrentAcc(processInsights(currAccResult.value.data[0]));
+    if (overviewResult.status === 'fulfilled' && !overviewResult.value.error) {
+      const ov = overviewResult.value;
+      setCurrentAcc(ov.current  ? processInsights(ov.current)  : null);
+      setComparison(ov.previous ? processInsights(ov.previous) : null);
+      setMonthlySpend(ov.thisMonth ? processInsights(ov.thisMonth).spend : null);
     } else {
       setCurrentAcc(null);
+      setComparison(null);
+      setMonthlySpend(null);
     }
 
-    // Daily data — shared with DailyChart + ROIChart to avoid duplicate fetches
     if (dailyResult.status === 'fulfilled' && !dailyResult.value.error) {
       setDailyData(dailyResult.value.data ?? []);
     } else {
       setDailyData(null);
     }
 
-    // This-month spend — shared with BudgetPacing to avoid a duplicate fetch
-    if (
-      monthlyResult.status === 'fulfilled' &&
-      !monthlyResult.value.error &&
-      monthlyResult.value.data?.[0]
-    ) {
-      setMonthlySpend(processInsights(monthlyResult.value.data[0]).spend);
-    } else {
-      setMonthlySpend(null);
-    }
+    setErrors(newErrors);
+    setLastUpdated(new Date());
+    setLoading(false);       // ← page becomes visible here
+    setRefreshKey((k) => k + 1);
 
-    // Last-7d adsets — for learning phase badge (supplemental, failures are silent)
-    if (adsets7dResult.status === 'fulfilled' && !adsets7dResult.value.error) {
-      setAdsets7d(adsets7dResult.value.data ?? []);
-    } else {
-      setAdsets7d([]);
-    }
+    // ── Phase 2: deferred background data ──────────────────────────────────
+    const [heatmapResult, fatigueCreativeResult, adsets7dResult] = await Promise.allSettled([
+      fetch(`/api/heatmap?date_preset=${datePreset}`).then((r) => r.json()),
+      fetch(`/api/creative-fatigue?date_preset=${datePreset}`).then((r) => r.json()),
+      fetch(`/api/adsets?date_preset=last_7d`).then((r) => r.json()),
+    ]);
 
-    // Heatmap heure/jour — silent failure
     if (heatmapResult.status === 'fulfilled' && !heatmapResult.value.error) {
       setHeatmapData(heatmapResult.value.data ?? []);
       if (heatmapResult.value.timezoneName) {
@@ -290,17 +277,17 @@ export default function Dashboard() {
       setHeatmapData([]);
     }
 
-    // Creative fatigue curve — silent failure
     if (fatigueCreativeResult.status === 'fulfilled' && !fatigueCreativeResult.value.error) {
       setCreativeFatigueData(fatigueCreativeResult.value.data ?? []);
     } else {
       setCreativeFatigueData([]);
     }
 
-    setErrors(newErrors);
-    setLastUpdated(new Date());
-    setLoading(false);
-    setRefreshKey((k) => k + 1);
+    if (adsets7dResult.status === 'fulfilled' && !adsets7dResult.value.error) {
+      setAdsets7d(adsets7dResult.value.data ?? []);
+    } else {
+      setAdsets7d([]);
+    }
   }, [datePreset]);
 
   useEffect(() => {
@@ -392,16 +379,23 @@ export default function Dashboard() {
       .filter((d) => d.roas < 100);
   }, [activeAdsets]);
 
+  // Exclude today from all daily charts — incomplete day skews trends
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const dailyDataComplete = useMemo(
+    () => dailyData?.filter((d) => d.date_start !== todayStr) ?? null,
+    [dailyData, todayStr],
+  );
+
   // BudgetProjectionScenarios: convert InsightData[] → DailyPerf[]
   const dailyPerfData = useMemo((): DailyPerf[] => {
-    if (!dailyData) return [];
-    return dailyData.map((d) => {
+    if (!dailyDataComplete) return [];
+    return dailyDataComplete.map((d) => {
       const spend   = parseFloat(d.spend) || 0;
       const roas    = d.purchase_roas?.[0] ? parseFloat(d.purchase_roas[0].value) || 0 : 0;
       const revenue = spend * roas;
       return { date: d.date_start ?? '', spend, revenue, roas };
     }).filter((d) => d.date && d.spend > 0);
-  }, [dailyData]);
+  }, [dailyDataComplete]);
 
   // ConversionFunnelVisual: map totals → FunnelData
   const funnelData = useMemo((): FunnelData => ({
@@ -911,7 +905,7 @@ export default function Dashboard() {
             cvr={cvr}
             onKpiClick={(kpi) => setFocusedKpi(kpi)}
             adsets={activeAdsets}
-            dailyData={dailyData}
+            dailyData={dailyDataComplete}
           />
         )}
 
@@ -997,19 +991,19 @@ export default function Dashboard() {
           refreshKey={refreshKey}
           datePreset={datePreset}
           focusedKpi={focusedKpi}
-          dailyData={dailyData}
+          dailyData={dailyDataComplete}
         />
 
         {/* ── ROI Chart ── */}
         <ROIChart
           refreshKey={refreshKey}
           datePreset={datePreset}
-          dailyData={dailyData}
+          dailyData={dailyDataComplete}
         />
 
         {/* ── Heatmaps ── */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <WeekHeatmap dailyData={dailyData} />
+          <WeekHeatmap dailyData={dailyDataComplete} />
           <HeatmapHourDay
             data={heatmapData}
             timezoneName={heatmapTz?.name}

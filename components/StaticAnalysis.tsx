@@ -406,7 +406,7 @@ export default function StaticAnalysis({ refreshKey, datePreset = 'last_30d' }: 
                       <div className="flex items-center gap-2">
                         {row.thumbnailUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={row.thumbnailUrl} alt="" className="w-8 h-8 rounded object-cover" />
+                          <img src={row.thumbnailUrl} alt="" loading="lazy" className="w-8 h-8 rounded object-cover" />
                         ) : (
                           <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center text-gray-400 text-xs">
                             {row.format === 'SHOPPING' ? '🛒' : '🖼'}

@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { withCache } from '@/lib/apiCache';
+
+const TTL = 5 * 60 * 1000; // 5 min
 
 const META_ACCESS_TOKEN  = process.env.META_ACCESS_TOKEN!;
 const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID!;
@@ -114,25 +117,28 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
-  const currRange  = getCurrentRange(datePreset);
-  const prevRange  = getPreviousRange(datePreset);
+  const cacheKey   = `scorecard:${META_AD_ACCOUNT_ID}:${datePreset}`;
 
   const insightFields = 'spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas';
 
   try {
+    const payload = await withCache(cacheKey, TTL, async () => {
+    const currRange = getCurrentRange(datePreset);
+    const prevRange = getPreviousRange(datePreset);
+
     // ── Parallel fetches ─────────────────────────────────────────────────────
     const [currentRes, previousRes, adsData] = await Promise.all([
       // 1. Account insights — current period (explicit range including today)
       fetch(`${BASE}/insights?${new URLSearchParams({
         fields: insightFields, time_range: JSON.stringify(currRange), access_token: META_ACCESS_TOKEN,
-      })}`, { next: { revalidate: 120 } }).then(r => r.json()),
+      })}`).then(r => r.json()),
 
       // 2. Account insights — previous period
       fetch(`${BASE}/insights?${new URLSearchParams({
         fields: insightFields, time_range: JSON.stringify(prevRange), access_token: META_ACCESS_TOKEN,
-      })}`, { next: { revalidate: 120 } }).then(r => r.json()),
+      })}`).then(r => r.json()),
 
-      // 3. Ads with creative data + insights (for creative metrics)
+      // 3. ACTIVE ads only — server-side filter reduces 3000 → ~200 records
       fetchAll<AdRow>(
         `${BASE}/ads?${new URLSearchParams({
           fields: [
@@ -140,10 +146,11 @@ export async function GET(request: Request) {
             'creative{id,object_type,video_id}',
             `insights.date_preset(${datePreset}){spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions}`,
           ].join(','),
-          limit: '500',
+          effective_status: JSON.stringify(['ACTIVE', 'PAUSED']), // skip deleted/archived
+          limit: '200',
           access_token: META_ACCESS_TOKEN,
         })}`,
-        6,
+        3, // maxPages: 3×200 = 600 ads max (was 6×500 = 3000)
       ),
     ]);
 
@@ -289,8 +296,8 @@ export async function GET(request: Request) {
     const currCVR = curr.clicks > 0 ? (curr.conversions / curr.clicks) * 100 : 0;
     const prevCVR = prev.clicks > 0 ? (prev.conversions / prev.clicks) * 100 : 0;
 
-    // ── Build response ───────────────────────────────────────────────────────
-    return NextResponse.json({
+    // ── Build response payload ───────────────────────────────────────────────
+    return {
       datePreset,
       current: curr,
       previous: prev,
@@ -306,11 +313,13 @@ export async function GET(request: Request) {
         avgHookRate,
         avgHoldRate,
       },
-      derived: {
-        currCVR,
-        prevCVR,
-      },
+      derived: { currCVR, prevCVR },
       fetchedAt: new Date().toISOString(),
+    };
+    }); // end withCache
+
+    return NextResponse.json(payload, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' },
     });
 
   } catch (err) {
