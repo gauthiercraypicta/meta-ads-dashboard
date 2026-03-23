@@ -379,23 +379,17 @@ export default function Dashboard() {
       .filter((d) => d.roas < 100);
   }, [activeAdsets]);
 
-  // Exclude today from all daily charts — incomplete day skews trends
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
-  const dailyDataComplete = useMemo(
-    () => dailyData?.filter((d) => d.date_start !== todayStr) ?? null,
-    [dailyData, todayStr],
-  );
-
   // BudgetProjectionScenarios: convert InsightData[] → DailyPerf[]
+  // Note: /api/daily already excludes today (incomplete day) server-side
   const dailyPerfData = useMemo((): DailyPerf[] => {
-    if (!dailyDataComplete) return [];
-    return dailyDataComplete.map((d) => {
+    if (!dailyData) return [];
+    return dailyData.map((d) => {
       const spend   = parseFloat(d.spend) || 0;
       const roas    = d.purchase_roas?.[0] ? parseFloat(d.purchase_roas[0].value) || 0 : 0;
       const revenue = spend * roas;
       return { date: d.date_start ?? '', spend, revenue, roas };
     }).filter((d) => d.date && d.spend > 0);
-  }, [dailyDataComplete]);
+  }, [dailyData]);
 
   // ConversionFunnelVisual: map totals → FunnelData
   const funnelData = useMemo((): FunnelData => ({
@@ -905,7 +899,7 @@ export default function Dashboard() {
             cvr={cvr}
             onKpiClick={(kpi) => setFocusedKpi(kpi)}
             adsets={activeAdsets}
-            dailyData={dailyDataComplete}
+            dailyData={dailyData}
           />
         )}
 
@@ -991,19 +985,19 @@ export default function Dashboard() {
           refreshKey={refreshKey}
           datePreset={datePreset}
           focusedKpi={focusedKpi}
-          dailyData={dailyDataComplete}
+          dailyData={dailyData}
         />
 
         {/* ── ROI Chart ── */}
         <ROIChart
           refreshKey={refreshKey}
           datePreset={datePreset}
-          dailyData={dailyDataComplete}
+          dailyData={dailyData}
         />
 
         {/* ── Heatmaps ── */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <WeekHeatmap dailyData={dailyDataComplete} />
+          <WeekHeatmap dailyData={dailyData} />
           <HeatmapHourDay
             data={heatmapData}
             timezoneName={heatmapTz?.name}
