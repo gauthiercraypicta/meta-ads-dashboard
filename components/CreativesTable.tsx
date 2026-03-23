@@ -369,7 +369,7 @@ function metricTd(value: number, formatter: (n: number) => string, colorFn?: (n:
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-type DatePreset = 'last_7d' | 'last_30d' | 'last_90d';
+type DatePreset = 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
 interface Props { refreshKey?: number; datePreset?: DatePreset; }
 
 export default function CreativesTable({ refreshKey = 0, datePreset = 'last_30d' }: Props) {

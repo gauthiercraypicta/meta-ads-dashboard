@@ -89,12 +89,13 @@ interface ChartPoint {
   roiFirstView1d:  number | null;
 }
 
-type DatePreset = 'last_7d' | 'last_30d' | 'last_90d';
+type DatePreset = 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
 
 const PERIOD_LABELS: Record<DatePreset, string> = {
   last_7d:  '7 derniers jours',
   last_30d: '30 derniers jours',
   last_90d: '90 derniers jours',
+  since_dec_1: 'Depuis le 1er décembre 2025',
 };
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────

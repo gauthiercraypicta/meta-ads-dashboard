@@ -86,7 +86,9 @@ export async function GET(request: Request) {
         'id',
         'name',
         `creative{${creativeFields}}`,
-        `insights.date_preset(${datePreset}){${insightFields}}`,
+        datePreset === 'since_dec_1'
+          ? `insights.time_range({"since":"2025-12-01","until":"${new Date().toISOString().split('T')[0]}"}){${insightFields}}`
+          : `insights.date_preset(${datePreset}){${insightFields}}`,
       ].join(','),
       limit:        '200',
       access_token: META_ACCESS_TOKEN!,

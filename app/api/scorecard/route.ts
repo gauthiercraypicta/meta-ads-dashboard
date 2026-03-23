@@ -39,6 +39,9 @@ function getPeriodDays(preset: string): number {
 const fmt = (d: Date) => d.toISOString().split('T')[0];
 
 function getCurrentRange(preset: string): { since: string; until: string } {
+  if (preset === 'since_dec_1') {
+    return { since: '2025-12-01', until: fmt(new Date()) };
+  }
   const days  = getPeriodDays(preset);
   const today = new Date();
   const since = new Date(today); since.setDate(today.getDate() - days);
@@ -46,6 +49,13 @@ function getCurrentRange(preset: string): { since: string; until: string } {
 }
 
 function getPreviousRange(preset: string): { since: string; until: string } {
+  if (preset === 'since_dec_1') {
+    const today = new Date();
+    const dec1 = new Date('2025-12-01');
+    const durationMs = today.getTime() - dec1.getTime();
+    const prevStart = new Date(dec1.getTime() - durationMs);
+    return { since: fmt(prevStart), until: '2025-11-30' };
+  }
   const days  = getPeriodDays(preset);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const until = new Date(today); until.setDate(today.getDate() - days);
@@ -144,7 +154,9 @@ export async function GET(request: Request) {
           fields: [
             'name', 'status', 'created_time',
             'creative{id,object_type,video_id}',
-            `insights.date_preset(${datePreset}){spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions}`,
+            datePreset === 'since_dec_1'
+              ? `insights.time_range({"since":"2025-12-01","until":"${fmt(new Date())}"}){spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions}`
+              : `insights.date_preset(${datePreset}){spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,purchase_roas,video_play_actions,video_thruplay_watched_actions}`,
           ].join(','),
           effective_status: JSON.stringify(['ACTIVE', 'PAUSED']), // skip deleted/archived
           limit: '200',

@@ -26,6 +26,9 @@ function getPeriodDays(datePreset: string): number | null {
 }
 
 function getCurrentRange(datePreset: string): { since: string; until: string } | null {
+  if (datePreset === 'since_dec_1') {
+    return { since: '2025-12-01', until: fmt(new Date()) };
+  }
   const days = getPeriodDays(datePreset);
   if (!days) return null;
   const today = new Date();
@@ -35,6 +38,14 @@ function getCurrentRange(datePreset: string): { since: string; until: string } |
 }
 
 function getPreviousRange(datePreset: string): { since: string; until: string } | null {
+  if (datePreset === 'since_dec_1') {
+    // Previous period = same duration before Dec 1
+    const today = new Date();
+    const dec1 = new Date('2025-12-01');
+    const durationMs = today.getTime() - dec1.getTime();
+    const prevStart = new Date(dec1.getTime() - durationMs);
+    return { since: fmt(prevStart), until: '2025-11-30' };
+  }
   const days = getPeriodDays(datePreset);
   if (!days) return null;
   const today = new Date();
