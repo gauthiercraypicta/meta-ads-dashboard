@@ -7,10 +7,14 @@ const TTL = 5 * 60 * 1000; // 5 min
 const API_VERSION = 'v18.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
-/** Convert date_preset to explicit time_range including today */
+/** Convert date_preset to explicit time_range ending yesterday (today is incomplete) */
 function toTimeRange(datePreset: string): { since: string; until: string } {
   const today = new Date();
-  const until = today.toISOString().split('T')[0];
+
+  // until = yesterday — excludes the current incomplete day from charts
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const until = yesterday.toISOString().split('T')[0];
 
   let days: number;
   switch (datePreset) {
