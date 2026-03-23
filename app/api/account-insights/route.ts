@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { InsightData, MetaApiResponse } from '@/types/meta';
+import { withCache } from '@/lib/apiCache';
+
+const TTL = 2 * 60 * 1000; // 2 min (account insights — fresher)
 
 const API_VERSION = 'v18.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -76,16 +79,21 @@ export async function GET(request: Request) {
     }
   }
 
-  try {
-    const params = new URLSearchParams({
-      fields: 'spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas',
-      access_token: META_ACCESS_TOKEN,
-      ...timeParams,
-    });
+  const cacheKey = `account-insights:${META_AD_ACCOUNT_ID}:${datePreset}:${mode}`;
 
-    const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
-    const response = await fetch(url, { next: { revalidate: 60 } });
-    const data: MetaApiResponse<InsightData> = await response.json();
+  try {
+    const data = await withCache<MetaApiResponse<InsightData>>(cacheKey, TTL, async () => {
+      const params = new URLSearchParams({
+        fields: 'spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas',
+        access_token: META_ACCESS_TOKEN!,
+        ...timeParams,
+      });
+
+      const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    });
 
     if (data.error) {
       return NextResponse.json(
@@ -94,14 +102,9 @@ export async function GET(request: Request) {
       );
     }
 
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: `Erreur HTTP ${response.status}` },
-        { status: response.status }
-      );
-    }
-
-    return NextResponse.json(data);
+    return NextResponse.json(data, {
+      headers: { 'Cache-Control': 'private, max-age=120, stale-while-revalidate=300' },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur inconnue';
     return NextResponse.json(

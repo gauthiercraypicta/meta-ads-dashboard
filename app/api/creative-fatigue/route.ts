@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+import { withCache } from '@/lib/apiCache';
+
+const TTL = 10 * 60 * 1000; // 10 min
 
 const API_VERSION = 'v18.0';
 const BASE_URL    = `https://graph.facebook.com/${API_VERSION}`;
@@ -71,8 +74,10 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
+  const cacheKey = `creative-fatigue:${META_AD_ACCOUNT_ID}:${datePreset}`;
 
   try {
+    const filtered = await withCache<CreativeFatiguePoint[]>(cacheKey, TTL, async () => {
     const creativeFields = 'id,name,title,body,thumbnail_url';
     const insightFields  = 'spend,impressions,clicks,ctr,frequency,actions,action_values';
 
@@ -84,20 +89,15 @@ export async function GET(request: Request) {
         `insights.date_preset(${datePreset}){${insightFields}}`,
       ].join(','),
       limit:        '200',
-      access_token: META_ACCESS_TOKEN,
+      access_token: META_ACCESS_TOKEN!,
       action_attribution_windows: JSON.stringify(['7d_click']),
     });
 
     const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/ads?${params.toString()}`;
-    const res  = await fetch(url, { next: { revalidate: 600 } }); // 10 min cache
+    const res  = await fetch(url);
     const json = await res.json();
 
-    if (json.error) {
-      return NextResponse.json(
-        { error: `Meta API: ${json.error.message} (code ${json.error.code})` },
-        { status: 400 },
-      );
-    }
+    if (json.error) throw new Error(`Meta API: ${json.error.message} (code ${json.error.code})`);
 
     const ads: RawAd[] = json.data ?? [];
 
@@ -179,9 +179,12 @@ export async function GET(request: Request) {
     for (const p of points) {
       freqCountByCreative.set(p.creativeId, (freqCountByCreative.get(p.creativeId) ?? 0) + 1);
     }
-    const filtered = points.filter((p) => (freqCountByCreative.get(p.creativeId) ?? 0) >= 2);
+    return points.filter((p) => (freqCountByCreative.get(p.creativeId) ?? 0) >= 2);
+    }); // end withCache
 
-    return NextResponse.json({ data: filtered });
+    return NextResponse.json({ data: filtered }, {
+      headers: { 'Cache-Control': 'private, max-age=600, stale-while-revalidate=1200' },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur inconnue';
     return NextResponse.json({ error: `Impossible de joindre Meta API : ${message}` }, { status: 503 });

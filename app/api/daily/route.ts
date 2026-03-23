@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { InsightData, MetaApiResponse } from '@/types/meta';
+import { withCache } from '@/lib/apiCache';
+
+const TTL = 5 * 60 * 1000; // 5 min
 
 const API_VERSION = 'v18.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -58,20 +61,26 @@ export async function GET(request: Request) {
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
   const timeRange = toTimeRange(datePreset);
 
+  const cacheKey = `daily:${META_AD_ACCOUNT_ID}:${datePreset}`;
+
   try {
-    const params = new URLSearchParams({
-      fields: 'spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,unique_actions,purchase_roas',
-      time_increment: '1',
-      time_range: JSON.stringify(timeRange),
-      access_token: META_ACCESS_TOKEN,
-      limit: '200',
-      action_attribution_windows: JSON.stringify(['7d_click', '1d_view', '7d_click_first_conversion', '1d_view_first_conversion']),
+    const allData = await withCache<InsightData[]>(cacheKey, TTL, async () => {
+      const params = new URLSearchParams({
+        fields: 'spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,unique_actions,purchase_roas',
+        time_increment: '1',
+        time_range: JSON.stringify(timeRange),
+        access_token: META_ACCESS_TOKEN!,
+        limit: '200',
+        action_attribution_windows: JSON.stringify(['7d_click', '1d_view', '7d_click_first_conversion', '1d_view_first_conversion']),
+      });
+
+      const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
+      return fetchAllPages(url);
     });
 
-    const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${params.toString()}`;
-    const allData = await fetchAllPages(url);
-
-    return NextResponse.json({ data: allData });
+    return NextResponse.json({ data: allData }, {
+      headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur inconnue';
     return NextResponse.json(
