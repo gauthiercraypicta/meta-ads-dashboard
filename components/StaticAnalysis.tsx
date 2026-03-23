@@ -254,7 +254,7 @@ export default function StaticAnalysis({ refreshKey, datePreset = 'last_30d' }: 
   }
 
   // ── Selected creative ──────────────────────────────────────────────────
-  const defaultSelected = useMemo(() => rows.length ? rows.reduce((a, b) => b.spend > a.spend ? b : a).id : null, [rows]);
+  const defaultSelected = useMemo(() => rows.length ? '__all__' : null, [rows]);
   const activeSelected = selectedCreative ?? defaultSelected;
 
   // ── Scatter data ───────────────────────────────────────────────────────
@@ -459,64 +459,133 @@ export default function StaticAnalysis({ refreshKey, datePreset = 'last_30d' }: 
         </div>
         {/* Creative selector pills */}
         <div className="flex flex-wrap gap-1.5 mb-4">
-          {rows.slice(0, 10).map((r) => (
+          <button
+            onClick={() => setSelectedCreative('__all__')}
+            className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${
+              activeSelected === '__all__' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >
+            All ({rows.length})
+          </button>
+          {rows.map((r) => (
             <button
               key={r.id}
               onClick={() => setSelectedCreative(r.id)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors ${
+              className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-colors flex items-center gap-1.5 ${
                 activeSelected === r.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
             >
+              {r.thumbnailUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={r.thumbnailUrl} alt="" className="w-4 h-4 rounded-sm object-cover" />
+              )}
               {r.name.length > 18 ? r.name.slice(0, 17) + '…' : r.name}
             </button>
           ))}
         </div>
-        {/* Summary for selected creative */}
-        <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
-          {rows.filter((r) => activeSelected === r.id).map((r) => {
-            const interp = getInterpretation(r);
-            return (
-              <div key={r.id} className="space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">CTR</p>
-                    <p className={`text-lg font-bold ${ctrColor(r.ctr)}`}>{r.ctr.toFixed(2)}%</p>
+
+        {/* All creatives grid or selected creative detail */}
+        {activeSelected === '__all__' ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {rows.map((r) => {
+              const interp = getInterpretation(r);
+              return (
+                <button
+                  key={r.id}
+                  onClick={() => setSelectedCreative(r.id)}
+                  className="bg-white border border-gray-200 rounded-xl p-3 text-left hover:border-blue-300 hover:shadow-sm transition-all"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    {r.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={r.thumbnailUrl} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 text-sm">{r.format === 'SHOPPING' ? '🛒' : '🖼'}</div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium text-gray-800 truncate" title={r.name}>{r.name}</p>
+                      <p className="text-[10px] text-gray-400">{r.ageDays}j · {fmtCurrency(r.spend)}</p>
+                    </div>
                   </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">CVR</p>
-                    <p className={`text-lg font-bold ${cvrColor(r.cvr)}`}>{r.cvr > 0 ? `${r.cvr.toFixed(1)}%` : '—'}</p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
+                    <div>
+                      <span className="text-gray-400">CTR</span>
+                      <span className={`ml-1 font-mono font-semibold ${ctrColor(r.ctr)}`}>{r.ctr.toFixed(2)}%</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">ROAS</span>
+                      <span className={`ml-1 font-mono font-semibold ${roasColor(r.roas)}`}>{r.roas > 0 ? `${r.roas.toFixed(2)}x` : '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Fréq.</span>
+                      <span className={`ml-1 font-mono font-semibold ${freqColor(r.frequency)}`}>{r.frequency.toFixed(1)}</span>
+                    </div>
+                    <div>{signalBadge(r.signal)}</div>
                   </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">Fréquence</p>
-                    <p className={`text-lg font-bold ${freqColor(r.frequency)}`}>{r.frequency.toFixed(1)}</p>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+            {rows.filter((r) => activeSelected === r.id).map((r) => {
+              const interp = getInterpretation(r);
+              return (
+                <div key={r.id} className="flex gap-5 items-start">
+                  {/* Thumbnail preview */}
+                  <div className="shrink-0">
+                    {r.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={r.thumbnailUrl} alt={r.name} className="w-28 h-28 rounded-xl object-cover border border-gray-200" />
+                    ) : (
+                      <div className="w-28 h-28 rounded-xl bg-gray-200 flex items-center justify-center text-gray-400 text-2xl">{r.format === 'SHOPPING' ? '🛒' : '🖼'}</div>
+                    )}
+                    <p className="text-[10px] text-gray-500 mt-1.5 text-center truncate max-w-[112px]" title={r.name}>{r.name}</p>
                   </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">ROAS</p>
-                    <p className={`text-lg font-bold ${roasColor(r.roas)}`}>{r.roas > 0 ? `${r.roas.toFixed(2)}x` : '—'}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] text-gray-400 uppercase">Spend</p>
-                    <p className="text-lg font-bold text-gray-900">{fmtCurrency(r.spend)}</p>
+                  {/* Metrics */}
+                  <div className="flex-1 space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                      <div className="text-center">
+                        <p className="text-[10px] text-gray-400 uppercase">CTR</p>
+                        <p className={`text-lg font-bold ${ctrColor(r.ctr)}`}>{r.ctr.toFixed(2)}%</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] text-gray-400 uppercase">CVR</p>
+                        <p className={`text-lg font-bold ${cvrColor(r.cvr)}`}>{r.cvr > 0 ? `${r.cvr.toFixed(1)}%` : '—'}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] text-gray-400 uppercase">Fréquence</p>
+                        <p className={`text-lg font-bold ${freqColor(r.frequency)}`}>{r.frequency.toFixed(1)}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] text-gray-400 uppercase">ROAS</p>
+                        <p className={`text-lg font-bold ${roasColor(r.roas)}`}>{r.roas > 0 ? `${r.roas.toFixed(2)}x` : '—'}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[10px] text-gray-400 uppercase">Spend</p>
+                        <p className="text-lg font-bold text-gray-900">{fmtCurrency(r.spend)}</p>
+                      </div>
+                    </div>
+                    {/* CTR gauge */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-gray-200 rounded-full h-2 relative">
+                        <div className="absolute h-2 bg-yellow-200 rounded-full" style={{ left: `${(0.5 / 3) * 100}%`, width: `${((1 - 0.5) / 3) * 100}%` }} />
+                        <div className="absolute h-2 bg-green-200 rounded-l-none rounded-full" style={{ left: `${(1 / 3) * 100}%`, width: `${((3 - 1) / 3) * 100}%` }} />
+                        <div className="absolute w-2 h-2 bg-blue-600 rounded-full top-0 -translate-x-1/2"
+                          style={{ left: `${Math.min(100, (r.ctr / 3) * 100)}%` }} />
+                      </div>
+                      <span className="text-[10px] text-gray-400 whitespace-nowrap">CTR {r.ctr.toFixed(2)}%</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {signalBadge(r.signal)}
+                      <p className={`text-xs font-medium ${interp.color}`}>{interp.text}</p>
+                    </div>
                   </div>
                 </div>
-                {/* Seuil indicators */}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-gray-200 rounded-full h-2 relative">
-                    {/* Attention zone */}
-                    <div className="absolute h-2 bg-yellow-200 rounded-full" style={{ left: `${(0.5 / 3) * 100}%`, width: `${((1 - 0.5) / 3) * 100}%` }} />
-                    {/* OK zone */}
-                    <div className="absolute h-2 bg-green-200 rounded-l-none rounded-full" style={{ left: `${(1 / 3) * 100}%`, width: `${((3 - 1) / 3) * 100}%` }} />
-                    {/* Indicator */}
-                    <div className="absolute w-2 h-2 bg-blue-600 rounded-full top-0 -translate-x-1/2"
-                      style={{ left: `${Math.min(100, (r.ctr / 3) * 100)}%` }} />
-                  </div>
-                  <span className="text-[10px] text-gray-400 whitespace-nowrap">CTR {r.ctr.toFixed(2)}%</span>
-                </div>
-                <p className={`text-xs font-medium ${interp.color}`}>{interp.text}</p>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
