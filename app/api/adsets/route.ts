@@ -6,6 +6,25 @@ const API_VERSION = 'v18.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const TTL = 5 * 60 * 1000; // 5 min
 
+/** Paginated fetch — follows paging.next up to maxPages */
+async function fetchAllPages(url: string, maxPages = 5): Promise<AdSet[]> {
+  const results: AdSet[] = [];
+  let next: string | undefined = url;
+  let page = 0;
+
+  while (next && page < maxPages) {
+    const res = await fetch(next);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data: MetaApiResponse<AdSet> = await res.json();
+    if (data.error) throw new Error(`Meta API: ${data.error.message} (code ${data.error.code})`);
+    if (data.data) results.push(...data.data);
+    next = data.paging?.next;
+    page++;
+  }
+
+  return results;
+}
+
 export async function GET(request: Request) {
   const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID;
   const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
@@ -27,7 +46,7 @@ export async function GET(request: Request) {
     : `insights.date_preset(${datePreset}){${insightFields}}`;
 
   try {
-    const data = await withCache<MetaApiResponse<AdSet>>(cacheKey, TTL, async () => {
+    const allAdSets = await withCache<AdSet[]>(cacheKey, TTL, async () => {
       const fields = [
         'id',
         'name',
@@ -43,19 +62,10 @@ export async function GET(request: Request) {
       });
 
       const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/adsets?${params.toString()}`;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
+      return fetchAllPages(url);
     });
 
-    if (data.error) {
-      return NextResponse.json(
-        { error: `Meta API: ${data.error.message} (code ${data.error.code})` },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json(data, {
+    return NextResponse.json({ data: allAdSets }, {
       headers: { 'Cache-Control': 'private, max-age=300, stale-while-revalidate=600' },
     });
   } catch (err) {

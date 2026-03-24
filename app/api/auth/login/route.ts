@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
-  const { password } = await request.json();
+  let body: { password?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const { password } = body;
   const correctPassword = process.env.AUTH_PASSWORD;
 
   if (!correctPassword) {
