@@ -368,6 +368,22 @@ export default function DailyChart({ refreshKey = 0, datePreset = 'last_30d', fo
                 )}
                 cursor={{ stroke: '#D1D5DB', strokeWidth: 1, strokeDasharray: '4 4' }}
               />
+              {stats && stats.avg > 0 && (
+                <ReferenceLine
+                  yAxisId="left"
+                  y={stats.avg}
+                  stroke="#9CA3AF"
+                  strokeDasharray="5 5"
+                  strokeWidth={1.5}
+                  strokeOpacity={0.6}
+                  label={{
+                    value: `Moy. ${formatCurrency(stats.avg)}`,
+                    position: 'insideTopLeft',
+                    fill: '#9CA3AF',
+                    fontSize: 10,
+                  }}
+                />
+              )}
               {avgRoas > 0 && (
                 <ReferenceLine
                   yAxisId="right"
@@ -437,6 +453,21 @@ export default function DailyChart({ refreshKey = 0, datePreset = 'last_30d', fo
                 )}
                 cursor={{ stroke: activeKpi.color, strokeWidth: 1, strokeDasharray: '4 4' }}
               />
+              {stats && stats.avg > 0 && (
+                <ReferenceLine
+                  y={stats.avg}
+                  stroke={activeKpi.color}
+                  strokeDasharray="5 5"
+                  strokeWidth={1.5}
+                  strokeOpacity={0.5}
+                  label={{
+                    value: `Moy. ${activeKpi.format(stats.avg)}`,
+                    position: 'insideTopRight',
+                    fill: activeKpi.color,
+                    fontSize: 10,
+                  }}
+                />
+              )}
               <Area
                 type="monotone"
                 dataKey={selectedKey}
