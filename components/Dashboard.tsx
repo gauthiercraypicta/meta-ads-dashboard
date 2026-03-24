@@ -479,6 +479,12 @@ export default function Dashboard() {
     [totals]
   );
 
+  // Number of days in the period (for daily averages on cards)
+  const numDays = useMemo(() => {
+    if (!dailyData || dailyData.length === 0) return 0;
+    return dailyData.length;
+  }, [dailyData]);
+
   // ── Delta helper ──────────────────────────────────────────────────────────
   // Uses account-level insights for BOTH current and previous so the two
   // periods come from the same data source (avoids campaigns vs account-level
@@ -622,6 +628,7 @@ export default function Dashboard() {
       icon: <IconDollar />,
       colorClass: 'bg-blue-100 text-blue-600',
       delta: calcDelta('spend'),
+      subtitle: numDays > 0 ? `Moy. ${formatCurrency(totals.spend / numDays)}/j` : undefined,
     },
     {
       title: 'Val. conversions',
@@ -629,6 +636,7 @@ export default function Dashboard() {
       icon: <IconTrendUp />,
       colorClass: 'bg-emerald-100 text-emerald-600',
       delta: calcDelta('conversionValue'),
+      subtitle: numDays > 0 ? `Moy. ${formatCurrency(totals.conversionValue / numDays)}/j` : undefined,
     },
     {
       title: 'ROAS',
@@ -636,6 +644,7 @@ export default function Dashboard() {
       icon: <IconAward />,
       colorClass: 'bg-rose-100 text-rose-600',
       delta: calcDelta('roas'),
+      subtitle: numDays > 0 ? `Moy. ${formatROAS(totals.roas)}/j` : undefined,
     },
     {
       title: 'CPA',
@@ -644,6 +653,7 @@ export default function Dashboard() {
       colorClass: 'bg-amber-100 text-amber-600',
       delta: calcDelta('cpa'),
       invertDelta: true,
+      subtitle: numDays > 0 && totals.cpa > 0 ? `Moy. ${formatCurrency(totals.cpa)}/j` : undefined,
     },
   ];
 
@@ -654,6 +664,7 @@ export default function Dashboard() {
       icon: <IconEye />,
       colorClass: 'bg-indigo-100 text-indigo-600',
       delta: calcDelta('impressions'),
+      subtitle: numDays > 0 ? `Moy. ${formatNumber(Math.round(totals.impressions / numDays))}/j` : undefined,
     },
     {
       title: 'Portée',
@@ -661,6 +672,7 @@ export default function Dashboard() {
       icon: <IconUsers />,
       colorClass: 'bg-violet-100 text-violet-600',
       delta: calcDelta('reach'),
+      subtitle: numDays > 0 ? `Moy. ${formatNumber(Math.round(totals.reach / numDays))}/j` : undefined,
     },
     {
       title: 'CTR moyen',
@@ -668,6 +680,7 @@ export default function Dashboard() {
       icon: <IconPercent />,
       colorClass: 'bg-teal-100 text-teal-600',
       delta: calcDelta('ctr'),
+      subtitle: numDays > 0 ? `Moy. ${formatPercent(totals.ctr)}/j` : undefined,
     },
     {
       title: 'CPM moyen',
@@ -676,6 +689,7 @@ export default function Dashboard() {
       colorClass: 'bg-orange-100 text-orange-600',
       delta: calcDelta('cpm'),
       invertDelta: true,
+      subtitle: numDays > 0 ? `Moy. ${formatCurrency(totals.cpm)}/j` : undefined,
     },
     {
       title: 'CPC moyen',
@@ -684,6 +698,7 @@ export default function Dashboard() {
       colorClass: 'bg-amber-100 text-amber-600',
       delta: calcDelta('cpc'),
       invertDelta: true,
+      subtitle: numDays > 0 ? `Moy. ${formatCurrency(totals.cpc)}/j` : undefined,
     },
     {
       title: 'Conversions',
@@ -691,6 +706,7 @@ export default function Dashboard() {
       icon: <IconShoppingCart />,
       colorClass: 'bg-green-100 text-green-600',
       delta: calcDelta('conversions'),
+      subtitle: numDays > 0 ? `Moy. ${formatNumber(Math.round(totals.conversions / numDays))}/j` : undefined,
     },
     {
       title: 'Fréquence',
@@ -698,6 +714,7 @@ export default function Dashboard() {
       icon: <IconRepeat />,
       colorClass: 'bg-gray-100 text-gray-500',
       delta: calcDelta('frequency'),
+      subtitle: numDays > 0 && totals.frequency > 0 ? `Moy. ${totals.frequency.toFixed(2)}/j` : undefined,
     },
   ];
 
@@ -885,6 +902,7 @@ export default function Dashboard() {
                 loading={loading}
                 delta={card.delta}
                 invertDelta={card.invertDelta}
+                subtitle={card.subtitle}
                 size="default"
               />
             ))}
@@ -902,6 +920,7 @@ export default function Dashboard() {
                 loading={loading}
                 delta={card.delta}
                 invertDelta={card.invertDelta}
+                subtitle={card.subtitle}
                 size="small"
               />
             ))}

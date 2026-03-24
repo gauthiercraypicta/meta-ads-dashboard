@@ -85,14 +85,20 @@ export default function MetricCard({
       ) : (
         <p className={`font-bold text-gray-900 leading-tight ${isSmall ? 'text-base' : 'text-xl'}`}>{value}</p>
       )}
-      {delta !== undefined && !loading && (
-        <div className="mt-1.5 flex items-center gap-1">
-          <DeltaBadge delta={delta} invert={invertDelta} />
-          <span className="text-[10px] text-gray-400">vs préc.</span>
+      {!loading && (delta !== undefined || subtitle) && (
+        <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+          {delta !== undefined && (
+            <>
+              <DeltaBadge delta={delta} invert={invertDelta} />
+              <span className="text-[10px] text-gray-400">vs préc.</span>
+            </>
+          )}
+          {subtitle && (
+            <span className={`text-[10px] text-gray-400 ${delta !== undefined ? 'ml-1 pl-1 border-l border-gray-200' : ''}`}>
+              {subtitle}
+            </span>
+          )}
         </div>
-      )}
-      {subtitle && !loading && delta === undefined && (
-        <p className="mt-1 text-xs text-gray-400">{subtitle}</p>
       )}
     </div>
   );
