@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import type { ReactNode } from 'react';
@@ -213,17 +213,28 @@ export default function Dashboard() {
   //   Phase 2 (deferred) — heatmap, creative-fatigue, adsets7d
   //                        → fills in background charts after the page is visible
 
+  const abortRef = useRef<AbortController | null>(null);
+
   const fetchData = useCallback(async () => {
+    // Cancel any in-flight request from a previous datePreset change
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
     setLoading(true);
     setErrors({});
 
     // ── Phase 1: critical data ──────────────────────────────────────────────
     const [campaignsResult, adsetsResult, overviewResult, dailyResult] = await Promise.allSettled([
-      fetch(`/api/campaigns?date_preset=${datePreset}`).then((r) => r.json()),
-      fetch(`/api/adsets?date_preset=${datePreset}`).then((r) => r.json()),
-      fetch(`/api/account-overview?date_preset=${datePreset}`).then((r) => r.json()),
-      fetch(`/api/daily?date_preset=${datePreset}`).then((r) => r.json()),
+      fetch(`/api/campaigns?date_preset=${datePreset}`, { signal }).then((r) => r.json()),
+      fetch(`/api/adsets?date_preset=${datePreset}`, { signal }).then((r) => r.json()),
+      fetch(`/api/account-overview?date_preset=${datePreset}`, { signal }).then((r) => r.json()),
+      fetch(`/api/daily?date_preset=${datePreset}`, { signal }).then((r) => r.json()),
     ]);
+
+    // If this request was superseded by a newer one, discard results
+    if (signal.aborted) return;
 
     const newErrors: FetchErrors = {};
 
@@ -265,10 +276,13 @@ export default function Dashboard() {
 
     // ── Phase 2: deferred background data ──────────────────────────────────
     const [heatmapResult, fatigueCreativeResult, adsets7dResult] = await Promise.allSettled([
-      fetch(`/api/heatmap?date_preset=${datePreset}`).then((r) => r.json()),
-      fetch(`/api/creative-fatigue?date_preset=${datePreset}`).then((r) => r.json()),
-      fetch(`/api/adsets?date_preset=last_7d`).then((r) => r.json()),
+      fetch(`/api/heatmap?date_preset=${datePreset}`, { signal }).then((r) => r.json()),
+      fetch(`/api/creative-fatigue?date_preset=${datePreset}`, { signal }).then((r) => r.json()),
+      fetch(`/api/adsets?date_preset=last_7d`, { signal }).then((r) => r.json()),
     ]);
+
+    // If this request was superseded by a newer one, discard results
+    if (signal.aborted) return;
 
     if (heatmapResult.status === 'fulfilled' && !heatmapResult.value.error) {
       setHeatmapData(heatmapResult.value.data ?? []);
@@ -294,6 +308,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
+    return () => { abortRef.current?.abort(); };
   }, [fetchData]);
 
   // ── Derivations ────────────────────────────────────────────────────────────
