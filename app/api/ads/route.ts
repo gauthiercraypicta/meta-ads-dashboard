@@ -15,7 +15,7 @@ async function fetchAllPages(initialUrl: string, maxPages = 5): Promise<AdRecord
   let page = 0;
 
   while (next && page < maxPages) {
-    const res: Response = await fetch(next);
+    const res: Response = await fetch(next, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (data.error) throw new Error(`Meta API: ${data.error.message}`);

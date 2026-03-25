@@ -96,7 +96,7 @@ export async function GET(request: Request) {
     });
 
     const url = `${BASE_URL}/${META_AD_ACCOUNT_ID}/ads?${params.toString()}`;
-    const res  = await fetch(url);
+    const res  = await fetch(url, { cache: 'no-store' });
     const json = await res.json();
 
     if (json.error) throw new Error(`Meta API: ${json.error.message} (code ${json.error.code})`);
