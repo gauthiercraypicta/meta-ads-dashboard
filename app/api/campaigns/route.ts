@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   const insightFields = 'spend,impressions,reach,clicks,ctr,cpc,cpm,frequency,actions,action_values,purchase_roas';
   const insightsClause = datePreset === 'since_dec_1'
     ? `insights.time_range({"since":"2025-12-01","until":"${new Date().toISOString().split('T')[0]}"}){${insightFields}}`
-    : `insights.date_preset("${datePreset}"){${insightFields}}`;
+    : `insights.date_preset(${datePreset}){${insightFields}}`;
 
   try {
     const allCampaigns = await withCache<Campaign[]>(cacheKey, TTL, async () => {
