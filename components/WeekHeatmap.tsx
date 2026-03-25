@@ -63,22 +63,31 @@ type DowMetrics = {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
+type DatePreset = 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
+
 interface Props {
   dailyData: InsightData[] | null;
+  datePreset?: DatePreset;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function WeekHeatmap({ dailyData }: Props) {
+export default function WeekHeatmap({ dailyData, datePreset = 'last_30d' }: Props) {
   const [metric, setMetric] = useState<Metric>('roas');
 
-  // ── Pre-compute all 4 metrics by DOW (last 30 days) ──────────────────────
+  // ── Pre-compute all 4 metrics by DOW ──────────────────────────────────────
 
   const byDowAll = useMemo((): Record<number, DowMetrics> | null => {
     if (!dailyData || dailyData.length === 0) return null;
 
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
+    const daysMap: Record<DatePreset, number> = {
+      last_7d: 7,
+      last_30d: 30,
+      last_90d: 90,
+      since_dec_1: 365,
+    };
+    cutoff.setDate(cutoff.getDate() - (daysMap[datePreset] || 30));
 
     const buckets: Record<number, {
       roas: number[]; cpa: number[]; conv: number[]; spend: number[];
@@ -115,7 +124,7 @@ export default function WeekHeatmap({ dailyData }: Props) {
         },
       ])
     ) as Record<number, DowMetrics>;
-  }, [dailyData]);
+  }, [dailyData, datePreset]);
 
   // ── Select the active metric column ──────────────────────────────────────
 
@@ -160,7 +169,9 @@ export default function WeekHeatmap({ dailyData }: Props) {
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
           Heatmap — Performance par jour de la semaine
-          <span className="ml-1 font-normal text-gray-300 normal-case">(moy. 30 derniers jours)</span>
+          <span className="ml-1 font-normal text-gray-300 normal-case">
+            (moy. {datePreset === 'last_7d' ? '7' : datePreset === 'last_90d' ? '90' : datePreset === 'since_dec_1' ? 'depuis déc.' : '30'}{datePreset !== 'since_dec_1' ? ' derniers jours' : ''})
+          </span>
         </h2>
 
         {/* Metric selector */}

@@ -133,6 +133,26 @@ export default function HeatmapHourDay({ data, metric: defaultMetric = 'roas', t
 
   const metricLabels: Record<Metric, string> = { roas: 'ROAS', cpa: 'CPA', ctr: 'CTR' };
 
+  if (data.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold text-gray-900 text-sm">Performance par Heure & Jour</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Heatmap 7 jours × 24 heures</p>
+          </div>
+        </div>
+        <div className="h-64 flex flex-col items-center justify-center gap-3 text-gray-400">
+          <svg className="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p className="text-sm">Chargement des données heatmap…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5">
       {/* Header */}
