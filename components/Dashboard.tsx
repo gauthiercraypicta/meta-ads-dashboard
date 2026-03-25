@@ -224,6 +224,10 @@ export default function Dashboard() {
 
     setLoading(true);
     setErrors({});
+    // Clear Phase 2 data immediately so heatmaps don't show stale data
+    setHeatmapData([]);
+    setHeatmapTz(null);
+    setCreativeFatigueData([]);
 
     // ── Phase 1: critical data ──────────────────────────────────────────────
     const [campaignsResult, adsetsResult, overviewResult, dailyResult] = await Promise.allSettled([
