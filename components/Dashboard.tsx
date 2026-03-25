@@ -1037,7 +1037,7 @@ export default function Dashboard() {
 
         {/* ── Heatmaps ── */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          <WeekHeatmap dailyData={dailyData} />
+          <WeekHeatmap dailyData={dailyData} datePreset={datePreset} />
           <HeatmapHourDay
             data={heatmapData}
             timezoneName={heatmapTz?.name}
