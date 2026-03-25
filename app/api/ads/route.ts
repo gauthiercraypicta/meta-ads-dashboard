@@ -65,7 +65,13 @@ export async function GET(request: Request) {
     const url = `https://graph.facebook.com/v18.0/${META_AD_ACCOUNT_ID}/ads?${params}`;
     const allAds = await fetchAllPages(url);
 
-    return NextResponse.json({ data: allAds });
+    // Only return ads that had activity (insights data) during the selected period
+    const activeAds = allAds.filter((ad) => {
+      const insights = ad.insights as { data?: unknown[] } | undefined;
+      return insights?.data && insights.data.length > 0;
+    });
+
+    return NextResponse.json({ data: activeAds });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur serveur';
     return NextResponse.json({ error: message }, { status: 500 });
