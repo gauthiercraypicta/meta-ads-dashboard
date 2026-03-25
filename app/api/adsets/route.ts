@@ -13,7 +13,7 @@ async function fetchAllPages(url: string, maxPages = 5): Promise<AdSet[]> {
   let page = 0;
 
   while (next && page < maxPages) {
-    const res = await fetch(next);
+    const res = await fetch(next, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data: MetaApiResponse<AdSet> = await res.json();
     if (data.error) throw new Error(`Meta API: ${data.error.message} (code ${data.error.code})`);
