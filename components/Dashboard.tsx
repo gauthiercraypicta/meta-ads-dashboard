@@ -34,6 +34,7 @@ const CreativeFatigueCurve     = dynamic(() => import('./charts/CreativeFatigueC
 const ConversionFunnelVisual   = dynamic(() => import('./charts/ConversionFunnelVisual'),   { ssr: false });
 const BudgetProjectionScenarios = dynamic(() => import('./charts/BudgetProjectionScenarios'), { ssr: false });
 const CreativeDecayCurve        = dynamic(() => import('./charts/CreativeDecayCurve'),        { ssr: false });
+const ImpressionsChart          = dynamic(() => import('./charts/ImpressionsChart'),          { ssr: false });
 
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics, InsightData } from '@/types/meta';
 import { processInsights, computeTotals, getStatusColor } from '@/lib/metaHelpers';
@@ -192,7 +193,7 @@ export default function Dashboard() {
   const [loading, setLoading]         = useState(true);
   const [errors, setErrors]           = useState<FetchErrors>({});
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'veille' | 'scorecard'>('apercu');
+  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'impressions' | 'veille' | 'scorecard'>('apercu');
   const [activeTab, setActiveTab]     = useState<'campaigns' | 'adsets'>('campaigns');
   const [refreshKey, setRefreshKey]   = useState(0);
   const [datePreset, setDatePreset]   = useState<DatePreset>('last_30d');
@@ -799,11 +800,12 @@ export default function Dashboard() {
       <div className="bg-white border-b border-gray-200 sticky top-[73px] z-10">
         <div className="max-w-screen-2xl mx-auto px-6 flex gap-0">
           {([
-            { key: 'apercu',     label: 'Aperçu',      icon: '📊' },
-            { key: 'creatives',  label: 'Créatives',   icon: '🎨' },
-            { key: 'veille',     label: 'Veille',      icon: '🔍' },
-            { key: 'scorecard',  label: 'Scorecard',   icon: '🎯' },
-          ] as { key: 'apercu' | 'creatives' | 'veille' | 'scorecard'; label: string; icon: string }[]).map((tab) => (
+            { key: 'apercu',      label: 'Aperçu',       icon: '📊' },
+            { key: 'creatives',   label: 'Créatives',    icon: '🎨' },
+            { key: 'impressions', label: 'Impressions',  icon: '👁' },
+            { key: 'veille',      label: 'Veille',       icon: '🔍' },
+            { key: 'scorecard',   label: 'Scorecard',    icon: '🎯' },
+          ] as { key: typeof mainTab; label: string; icon: string }[]).map((tab) => (
             <button
               key={tab.key}
               onClick={() => setMainTab(tab.key)}
@@ -830,6 +832,11 @@ export default function Dashboard() {
           <VideoAnalysis refreshKey={refreshKey} datePreset={datePreset} />
           <StaticAnalysis refreshKey={refreshKey} datePreset={datePreset} />
         </div>
+      )}
+
+      {/* ═══ ONGLET IMPRESSIONS ═══ */}
+      {mainTab === 'impressions' && (
+        <ImpressionsChart datePreset={datePreset} />
       )}
 
       {/* ═══ ONGLET VEILLE ═══ */}
