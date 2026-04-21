@@ -33,6 +33,7 @@ const HeatmapHourDay           = dynamic(() => import('./charts/HeatmapHourDay')
 const CreativeFatigueCurve     = dynamic(() => import('./charts/CreativeFatigueCurve'),     { ssr: false });
 const ConversionFunnelVisual   = dynamic(() => import('./charts/ConversionFunnelVisual'),   { ssr: false });
 const BudgetProjectionScenarios = dynamic(() => import('./charts/BudgetProjectionScenarios'), { ssr: false });
+const CreativeDecayCurve        = dynamic(() => import('./charts/CreativeDecayCurve'),        { ssr: false });
 
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics, InsightData } from '@/types/meta';
 import { processInsights, computeTotals, getStatusColor } from '@/lib/metaHelpers';
@@ -1092,6 +1093,11 @@ export default function Dashboard() {
               )}
             </div>
           </section>
+        )}
+
+        {/* ── Creative Decay Curve ── */}
+        {!loading && (
+          <CreativeDecayCurve datePreset={datePreset} />
         )}
 
       </div>
