@@ -3,7 +3,7 @@ import { withCache } from '@/lib/apiCache';
 
 const TTL = 15 * 60 * 1000; // 15 min (hourly historical data)
 
-const API_VERSION = 'v18.0';
+const API_VERSION = 'v21.0';
 const BASE_URL    = `https://graph.facebook.com/${API_VERSION}`;
 
 /** Convert date_preset to explicit time_range including today */
