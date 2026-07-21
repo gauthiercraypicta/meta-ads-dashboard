@@ -608,7 +608,7 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
               <XAxis type="number" tickFormatter={(v) => `$${v.toFixed(0)}`} {...AXIS_COMMON} />
               <YAxis dataKey="name" type="category" {...AXIS_COMMON} width={90} tick={{ ...AXIS_TICK, fontSize: 10 }} />
-              <Tooltip formatter={(v: number) => `$${v.toFixed(2)}`} />
+              <Tooltip formatter={(v: unknown) => typeof v === 'number' ? `$${v.toFixed(2)}` : '—'} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="CPI"  fill="#3b82f6" radius={[0, 3, 3, 0]} />
               <Bar dataKey="CPQI" fill="#f97316" radius={[0, 3, 3, 0]} />
