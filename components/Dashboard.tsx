@@ -35,6 +35,7 @@ const ConversionFunnelVisual   = dynamic(() => import('./charts/ConversionFunnel
 const BudgetProjectionScenarios = dynamic(() => import('./charts/BudgetProjectionScenarios'), { ssr: false });
 const CreativeDecayCurve        = dynamic(() => import('./charts/CreativeDecayCurve'),        { ssr: false });
 const ImpressionsChart          = dynamic(() => import('./charts/ImpressionsChart'),          { ssr: false });
+const AppPicta                  = dynamic(() => import('./AppPicta'),                          { ssr: false });
 
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics, InsightData } from '@/types/meta';
 import { processInsights, computeTotals, getStatusColor } from '@/lib/metaHelpers';
@@ -193,7 +194,7 @@ export default function Dashboard() {
   const [loading, setLoading]         = useState(true);
   const [errors, setErrors]           = useState<FetchErrors>({});
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'impressions' | 'veille' | 'scorecard'>('apercu');
+  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'impressions' | 'app' | 'veille' | 'scorecard'>('apercu');
   const [activeTab, setActiveTab]     = useState<'campaigns' | 'adsets'>('campaigns');
   const [refreshKey, setRefreshKey]   = useState(0);
   const [datePreset, setDatePreset]   = useState<DatePreset>('last_30d');
@@ -803,6 +804,7 @@ export default function Dashboard() {
             { key: 'apercu',      label: 'Aperçu',       icon: '📊' },
             { key: 'creatives',   label: 'Créatives',    icon: '🎨' },
             { key: 'impressions', label: 'Impressions',  icon: '👁' },
+            { key: 'app',         label: 'App Picta',    icon: '📲' },
             { key: 'veille',      label: 'Veille',       icon: '🔍' },
             { key: 'scorecard',   label: 'Scorecard',    icon: '🎯' },
           ] as { key: typeof mainTab; label: string; icon: string }[]).map((tab) => (
@@ -840,6 +842,11 @@ export default function Dashboard() {
       )}
 
       {/* ═══ ONGLET VEILLE ═══ */}
+      {/* ═══ ONGLET APP PICTA ═══ */}
+      {mainTab === 'app' && (
+        <AppPicta datePreset={datePreset} />
+      )}
+
       {mainTab === 'veille' && (
         <VeilleDashboard />
       )}
