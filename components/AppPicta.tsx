@@ -1,0 +1,640 @@
+'use client';
+
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import type { ReactNode } from 'react';
+import {
+  LineChart, Line, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ReferenceLine, ResponsiveContainer,
+} from 'recharts';
+import type { AppInstallsResponse, AppDailyRow, AppCampaignSummary, AppTotals } from '@/types/app';
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+
+const QUALITY_TARGET = 0.30; // cible taux install→QI (30 %)
+const IOS_LAG_DAYS   = 3;    // derniers N jours iOS non-définitifs (SKAdNetwork)
+
+// ─── Mock data (dev offline fallback) ────────────────────────────────────────
+
+function generateMockData(): AppInstallsResponse {
+  const DAYS   = 30;
+  const today  = new Date();
+  const daily: AppDailyRow[] = [];
+  const camps  = [
+    { id: 'c1', name: 'Picta — App Install iOS',     status: 'ACTIVE' },
+    { id: 'c2', name: 'Picta — App Install Android', status: 'ACTIVE' },
+  ];
+
+  for (let d = DAYS - 1; d >= 0; d--) {
+    const dt = new Date(today);
+    dt.setDate(today.getDate() - d);
+    const date = dt.toISOString().split('T')[0];
+    const rnd  = () => Math.random();
+
+    // iOS
+    const iosSpend = 150 + rnd() * 120;
+    const iosImpr  = Math.round(iosSpend * 380 + rnd() * 8000);
+    const iosCl    = Math.round(iosImpr * (0.013 + rnd() * 0.009));
+    const iosInst  = Math.round(iosCl * (0.07 + rnd() * 0.06));
+    const iosQI    = Math.round(iosInst * (0.18 + rnd() * 0.18));
+    daily.push({ date, campaignId: 'c1', campaignName: camps[0].name, spend: iosSpend, impressions: iosImpr, reach: Math.round(iosImpr * 0.91), clicks: iosCl, frequency: 1.1 + rnd() * 0.5, installs: iosInst, qualifiedInstalls: iosQI });
+
+    // Android
+    const andSpend = 80 + rnd() * 70;
+    const andImpr  = Math.round(andSpend * 560 + rnd() * 6000);
+    const andCl    = Math.round(andImpr * (0.017 + rnd() * 0.011));
+    const andInst  = Math.round(andCl * (0.10 + rnd() * 0.07));
+    const andQI    = Math.round(andInst * (0.24 + rnd() * 0.16));
+    daily.push({ date, campaignId: 'c2', campaignName: camps[1].name, spend: andSpend, impressions: andImpr, reach: Math.round(andImpr * 0.89), clicks: andCl, frequency: 1.0 + rnd() * 0.4, installs: andInst, qualifiedInstalls: andQI });
+  }
+
+  const toSummary = (c: typeof camps[0]): AppCampaignSummary => {
+    const rows = daily.filter((r) => r.campaignId === c.id);
+    const t = rows.reduce((acc, r) => ({ spend: acc.spend + r.spend, impressions: acc.impressions + r.impressions, clicks: acc.clicks + r.clicks, installs: acc.installs + r.installs, qualifiedInstalls: acc.qualifiedInstalls + r.qualifiedInstalls }), { spend: 0, impressions: 0, clicks: 0, installs: 0, qualifiedInstalls: 0 });
+    return { id: c.id, name: c.name, status: c.status, ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
+  };
+
+  const campaigns = camps.map(toSummary);
+  const all = daily;
+  const t = all.reduce((acc, r) => ({ spend: acc.spend + r.spend, impressions: acc.impressions + r.impressions, clicks: acc.clicks + r.clicks, installs: acc.installs + r.installs, qualifiedInstalls: acc.qualifiedInstalls + r.qualifiedInstalls }), { spend: 0, impressions: 0, clicks: 0, installs: 0, qualifiedInstalls: 0 });
+  const totals: AppTotals = { ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
+  const prevTotals: AppTotals = { ...totals, spend: totals.spend * 0.88, installs: Math.round(totals.installs * 0.82), qualifiedInstalls: Math.round(totals.qualifiedInstalls * 0.79), cpi: totals.cpi * 1.10, cpqi: totals.cpqi * 1.14, qualRate: totals.qualRate * 0.97 };
+
+  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)' };
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type Granularity = 'day' | 'week';
+type SortDir     = 'asc' | 'desc';
+
+interface DailyPoint {
+  date: string;
+  displayDate: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  installs: number;
+  qualifiedInstalls: number;
+  nonQiInstalls: number;
+  cpi: number;
+  cpqi: number;
+  cpm: number;
+  ctr: number;
+  installRate: number;
+  qualRate: number;
+}
+
+// ─── Aggregation ──────────────────────────────────────────────────────────────
+
+function fmtDisplayDate(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+
+function deriveMetrics(t: { spend: number; impressions: number; clicks: number; installs: number; qualifiedInstalls: number }) {
+  return {
+    cpi:         t.installs > 0          ? t.spend / t.installs          : 0,
+    cpqi:        t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0,
+    cpm:         t.impressions > 0       ? (t.spend / t.impressions) * 1000 : 0,
+    ctr:         t.impressions > 0       ? t.clicks / t.impressions       : 0,
+    installRate: t.clicks > 0            ? t.installs / t.clicks          : 0,
+    qualRate:    t.installs > 0          ? t.qualifiedInstalls / t.installs : 0,
+    nonQiInstalls: Math.max(0, t.installs - t.qualifiedInstalls),
+  };
+}
+
+function aggregateByDate(rows: AppDailyRow[]): DailyPoint[] {
+  const map = new Map<string, { spend: number; impressions: number; clicks: number; installs: number; qualifiedInstalls: number }>();
+  for (const r of rows) {
+    const e = map.get(r.date);
+    if (!e) map.set(r.date, { spend: r.spend, impressions: r.impressions, clicks: r.clicks, installs: r.installs, qualifiedInstalls: r.qualifiedInstalls });
+    else { e.spend += r.spend; e.impressions += r.impressions; e.clicks += r.clicks; e.installs += r.installs; e.qualifiedInstalls += r.qualifiedInstalls; }
+  }
+  return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, t]) => ({ date, displayDate: fmtDisplayDate(date), ...t, ...deriveMetrics(t) }));
+}
+
+function toWeekly(points: DailyPoint[]): DailyPoint[] {
+  const weeks = new Map<string, { spend: number; impressions: number; clicks: number; installs: number; qualifiedInstalls: number; displayDate: string }>();
+  for (const p of points) {
+    const d = new Date(p.date + 'T12:00:00');
+    const dow = d.getDay();
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+    const wk = mon.toISOString().split('T')[0];
+    const e = weeks.get(wk);
+    const disp = `S ${mon.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`;
+    if (!e) weeks.set(wk, { spend: p.spend, impressions: p.impressions, clicks: p.clicks, installs: p.installs, qualifiedInstalls: p.qualifiedInstalls, displayDate: disp });
+    else { e.spend += p.spend; e.impressions += p.impressions; e.clicks += p.clicks; e.installs += p.installs; e.qualifiedInstalls += p.qualifiedInstalls; }
+  }
+  return Array.from(weeks.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, t]) => ({ date, ...t, ...deriveMetrics(t) }));
+}
+
+// ─── Formatters ───────────────────────────────────────────────────────────────
+
+function fmtMoney(v: number):   string { return v === 0 ? '—' : `$${v.toFixed(2)}`; }
+function fmtNum(v: number):     string { return v === 0 ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`; }
+function fmtPct(v: number):     string { return `${(v * 100).toFixed(1)}%`; }
+function fmtPctFine(v: number): string { return `${(v * 100).toFixed(2)}%`; }
+
+// ─── Shared chart props ───────────────────────────────────────────────────────
+
+const AXIS_TICK = { fontSize: 11, fill: '#9CA3AF' };
+const AXIS_COMMON = { axisLine: false as const, tickLine: false as const, tick: AXIS_TICK };
+
+// ─── Chart card wrapper ───────────────────────────────────────────────────────
+
+function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div className="px-6 pt-5 pb-3 border-b border-gray-100">
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+      </div>
+      <div className="px-6 py-4">{children}</div>
+    </div>
+  );
+}
+
+// ─── KPI card ─────────────────────────────────────────────────────────────────
+
+function KpiCard({ label, value, prevValue, display, lowerIsBetter = false }: {
+  label: string; value: number; prevValue: number | null;
+  display: string; lowerIsBetter?: boolean;
+}) {
+  const delta = prevValue != null && Math.abs(prevValue) > 0 ? (value - prevValue) / Math.abs(prevValue) : null;
+  const good  = delta === null ? null : lowerIsBetter ? delta < 0 : delta > 0;
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 min-w-0">
+      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1 truncate">{label}</p>
+      <p className="text-lg font-bold text-gray-900 font-mono">{display}</p>
+      {delta !== null && (
+        <p className={`text-[11px] mt-1 font-medium ${good ? 'text-green-600' : 'text-red-500'}`}>
+          {delta > 0 ? '↑' : '↓'} {Math.abs(delta * 100).toFixed(1)}% vs préc.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Tooltip components ───────────────────────────────────────────────────────
+
+interface TooltipProps {
+  active?: boolean;
+  payload?: { name: string; value: number; color: string; payload: DailyPoint }[];
+  label?: string;
+}
+
+function MoneyTooltip({ active, payload, label }: TooltipProps) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3 pointer-events-none text-xs">
+      <p className="font-semibold text-gray-900 mb-1.5">{label}</p>
+      {payload.map((p) => (
+        <p key={p.name} className="flex justify-between gap-4" style={{ color: p.color }}>
+          <span>{p.name}</span>
+          <span className="font-mono font-semibold">{fmtMoney(p.value)}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function PctTooltip({ active, payload, label }: TooltipProps) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3 pointer-events-none text-xs">
+      <p className="font-semibold text-gray-900 mb-1.5">{label}</p>
+      {payload.map((p) => (
+        <p key={p.name} className="flex justify-between gap-4" style={{ color: p.color }}>
+          <span>{p.name}</span>
+          <span className="font-mono font-semibold">{fmtPct(p.value)}</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function VolumeTooltip({ active, payload, label }: TooltipProps) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0]?.payload;
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3 pointer-events-none text-xs space-y-0.5">
+      <p className="font-semibold text-gray-900 mb-1.5">{label}</p>
+      <p className="text-blue-500">Installs : <span className="font-mono font-semibold text-gray-900">{fmtNum(p?.installs ?? 0)}</span></p>
+      <p className="text-green-500">Dont QI : <span className="font-mono font-semibold text-gray-900">{fmtNum(p?.qualifiedInstalls ?? 0)}</span></p>
+    </div>
+  );
+}
+
+// ─── SVG Funnel ───────────────────────────────────────────────────────────────
+
+function AppFunnel({ impressions, clicks, installs, qualInstalls }: {
+  impressions: number; clicks: number; installs: number; qualInstalls: number;
+}) {
+  const W      = 500;
+  const STEP_H = 60;
+  const GAP_H  = 42;
+  const PAD    = 8;
+  const mx     = W / 2;
+
+  function fw(val: number, max: number, minF = 0.15): number {
+    if (!max || !val) return W * minF;
+    return W * Math.min(Math.max(minF, minF + (1 - minF) * Math.sqrt(val / max)), 0.95);
+  }
+  function poly(yTop: number, wT: number, wB: number): string {
+    const l = (W - wT) / 2, r = (W + wT) / 2;
+    const lb = (W - wB) / 2, rb = (W + wB) / 2;
+    return `${l},${yTop} ${r},${yTop} ${rb},${yTop + STEP_H} ${lb},${yTop + STEP_H}`;
+  }
+
+  const w1 = fw(impressions, impressions, 0.93);
+  const w2 = fw(clicks,      impressions, 0.18);
+  const w3 = fw(installs,    impressions, 0.12);
+  const w4 = fw(qualInstalls, impressions, 0.08);
+
+  const y1 = PAD;
+  const y2 = y1 + STEP_H + GAP_H;
+  const y3 = y2 + STEP_H + GAP_H;
+  const y4 = y3 + STEP_H + GAP_H;
+  const totalH = y4 + STEP_H + PAD;
+
+  const ctr         = impressions > 0 ? clicks / impressions       : 0;
+  const installRate = clicks > 0      ? installs / clicks           : 0;
+  const qualRate    = installs > 0    ? qualInstalls / installs     : 0;
+
+  const fmtBig = (v: number) =>
+    v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `${Math.round(v / 1_000)}k` : `${Math.round(v)}`;
+
+  const gapLabel = (gy: number, rate: number, label: string, ok: boolean) => (
+    <>
+      <line x1={mx} y1={gy} x2={mx} y2={gy + GAP_H - 2} stroke="#d1d5db" strokeWidth={1.5} strokeDasharray="3,3" />
+      <polygon points={`${mx - 5},${gy + GAP_H - 10} ${mx + 5},${gy + GAP_H - 10} ${mx},${gy + GAP_H - 2}`} fill="#d1d5db" />
+      <rect x={mx - 58} y={gy + 8} width={116} height={26} rx={13} fill={ok ? '#d1fae5' : '#fff7ed'} />
+      <text x={mx} y={gy + 26} textAnchor="middle" fill={ok ? '#065f46' : '#9a3412'} fontSize={11} fontWeight="700">
+        {label} {fmtPct(rate)}
+      </text>
+    </>
+  );
+
+  return (
+    <svg viewBox={`0 0 ${W} ${totalH}`} className="w-full mx-auto" style={{ maxHeight: 360 }}>
+      <polygon points={poly(y1, w1, w2)} fill="#3b82f6" />
+      <text x={mx} y={y1 + 19} textAnchor="middle" fill="white" fontSize={10} opacity={0.85}>Impressions</text>
+      <text x={mx} y={y1 + 46} textAnchor="middle" fill="white" fontSize={18} fontWeight="700">{fmtBig(impressions)}</text>
+
+      {gapLabel(y1 + STEP_H, ctr, 'CTR', ctr > 0.01)}
+
+      <polygon points={poly(y2, w2, w3)} fill="#6366f1" />
+      <text x={mx} y={y2 + 19} textAnchor="middle" fill="white" fontSize={10} opacity={0.85}>Clics</text>
+      <text x={mx} y={y2 + 46} textAnchor="middle" fill="white" fontSize={18} fontWeight="700">{fmtBig(clicks)}</text>
+
+      {gapLabel(y2 + STEP_H, installRate, 'Taux install', installRate > 0.05)}
+
+      <polygon points={poly(y3, w3, w4)} fill="#10b981" />
+      <text x={mx} y={y3 + 19} textAnchor="middle" fill="white" fontSize={10} opacity={0.85}>Installs</text>
+      <text x={mx} y={y3 + 46} textAnchor="middle" fill="white" fontSize={18} fontWeight="700">{fmtBig(installs)}</text>
+
+      {gapLabel(y3 + STEP_H, qualRate, 'Taux QI', qualRate >= QUALITY_TARGET)}
+
+      <polygon points={poly(y4, w4, w4 * 0.95)} fill={qualRate >= QUALITY_TARGET ? '#059669' : '#f59e0b'} />
+      <text x={mx} y={y4 + 19} textAnchor="middle" fill="white" fontSize={10} opacity={0.85}>Installs qualifiées</text>
+      <text x={mx} y={y4 + 46} textAnchor="middle" fill="white" fontSize={18} fontWeight="700">{fmtBig(qualInstalls)}</text>
+    </svg>
+  );
+}
+
+// ─── Campaign table ───────────────────────────────────────────────────────────
+
+type SortKey = keyof AppCampaignSummary;
+
+function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
+  campaigns: AppCampaignSummary[];
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (k: SortKey) => void;
+}) {
+  const cols: { key: SortKey; label: string; fmt: (v: AppCampaignSummary) => string }[] = [
+    { key: 'name',              label: 'Campagne',       fmt: (c) => c.name },
+    { key: 'status',            label: 'Statut',         fmt: (c) => c.status },
+    { key: 'spend',             label: 'Dépenses',       fmt: (c) => `$${c.spend.toFixed(0)}` },
+    { key: 'installs',          label: 'Installs',       fmt: (c) => fmtNum(c.installs) },
+    { key: 'qualifiedInstalls', label: 'QI',             fmt: (c) => fmtNum(c.qualifiedInstalls) },
+    { key: 'cpi',               label: 'CPI',            fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
+    { key: 'cpqi',              label: 'CPQI',           fmt: (c) => c.cpqi > 0 ? fmtMoney(c.cpqi) : '—' },
+    { key: 'ctr',               label: 'CTR',            fmt: (c) => fmtPctFine(c.ctr) },
+    { key: 'cpm',               label: 'CPM',            fmt: (c) => fmtMoney(c.cpm) },
+    { key: 'installRate',       label: 'Taux install',   fmt: (c) => fmtPct(c.installRate) },
+    { key: 'qualRate',          label: 'Taux QI',        fmt: (c) => fmtPct(c.qualRate) },
+  ];
+
+  if (!campaigns.length) return <p className="text-sm text-gray-400 py-6 text-center">Aucune campagne app trouvée.</p>;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="border-b border-gray-100">
+            {cols.map((c) => (
+              <th
+                key={c.key}
+                onClick={() => onSort(c.key)}
+                className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide cursor-pointer hover:text-gray-700 whitespace-nowrap select-none"
+              >
+                {c.label}
+                {sortKey === c.key && <span className="ml-1 text-blue-500">{sortDir === 'desc' ? '↓' : '↑'}</span>}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {campaigns.map((camp, i) => (
+            <tr key={camp.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
+              {cols.map((c) => (
+                <td key={c.key} className={`px-3 py-2.5 font-mono ${c.key === 'name' ? 'font-sans text-gray-800 font-medium max-w-[200px] truncate' : 'text-gray-700'}`}>
+                  {c.key === 'status' ? (
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${camp.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {camp.status === 'ACTIVE' && <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1" />}
+                      {camp.status}
+                    </span>
+                  ) : c.fmt(camp)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Loading / Error states ───────────────────────────────────────────────────
+
+function LoadingState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 gap-3 text-gray-400">
+      <svg className="w-7 h-7 animate-spin" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
+      <p className="text-sm">Chargement des données app…</p>
+    </div>
+  );
+}
+
+function ErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex items-start gap-3 bg-red-50 border border-red-200 text-red-800 rounded-xl px-4 py-3 text-sm">
+      <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <div className="flex-1">
+        <p className="font-semibold">Erreur App Picta</p>
+        <p className="text-red-600 mt-0.5">{message}</p>
+      </div>
+      <button onClick={onRetry} className="text-xs font-medium underline hover:no-underline">Réessayer</button>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function AppPicta({ datePreset }: { datePreset: string }) {
+  const [data,        setData]        = useState<AppInstallsResponse | null>(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState<string | null>(null);
+  const [granularity, setGranularity] = useState<Granularity>('day');
+  const [sortKey,     setSortKey]     = useState<SortKey>('spend');
+  const [sortDir,     setSortDir]     = useState<SortDir>('desc');
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/app-installs?date_preset=${datePreset}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if ('error' in json && typeof json.error === 'string') throw new Error(json.error);
+      setData(json as AppInstallsResponse);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Erreur inconnue';
+      console.warn('[AppPicta] Utilisation des données mock :', msg);
+      setError(msg);
+      setData(generateMockData());
+    } finally {
+      setLoading(false);
+    }
+  }, [datePreset]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const dailyPoints = useMemo<DailyPoint[]>(() => {
+    if (!data) return [];
+    const byDate = aggregateByDate(data.daily);
+    return granularity === 'week' ? toWeekly(byDate) : byDate;
+  }, [data, granularity]);
+
+  const sortedCampaigns = useMemo(() => {
+    if (!data) return [];
+    return [...data.campaigns].sort((a, b) => {
+      const diff = (a[sortKey] as number) - (b[sortKey] as number);
+      return sortDir === 'desc' ? -diff : diff;
+    });
+  }, [data, sortKey, sortDir]);
+
+  // Per-campaign bar (chart 8)
+  const campaignBars = useMemo(() => {
+    if (!data) return [];
+    return data.campaigns.map((c) => ({
+      name: c.name.replace(/picta\s*[—\-]\s*/i, '').replace(/app\s+install\s*/i, '').trim().slice(0, 18),
+      CPI:  c.cpi,
+      CPQI: c.cpqi,
+      'Taux QI %': +(c.qualRate * 100).toFixed(1),
+    }));
+  }, [data]);
+
+  if (loading) return <LoadingState />;
+
+  const { totals, prevTotals, qualifiedInstallEvent } = data!;
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    else { setSortKey(key); setSortDir('desc'); }
+  };
+
+  const kpis = [
+    { label: 'Dépenses',       value: totals.spend,             prev: prevTotals?.spend,             display: `$${totals.spend.toFixed(0)}`,       lowerIsBetter: true  },
+    { label: 'Installs',       value: totals.installs,          prev: prevTotals?.installs,          display: fmtNum(totals.installs),             lowerIsBetter: false },
+    { label: 'Installs QI',    value: totals.qualifiedInstalls, prev: prevTotals?.qualifiedInstalls, display: fmtNum(totals.qualifiedInstalls),    lowerIsBetter: false },
+    { label: 'CPI',            value: totals.cpi,               prev: prevTotals?.cpi,               display: totals.cpi > 0 ? fmtMoney(totals.cpi) : '—', lowerIsBetter: true },
+    { label: 'CPQI',           value: totals.cpqi,              prev: prevTotals?.cpqi,              display: totals.cpqi > 0 ? fmtMoney(totals.cpqi) : '—', lowerIsBetter: true },
+    { label: 'CPM',            value: totals.cpm,               prev: prevTotals?.cpm,               display: fmtMoney(totals.cpm),               lowerIsBetter: true  },
+    { label: 'CTR',            value: totals.ctr,               prev: prevTotals?.ctr,               display: fmtPctFine(totals.ctr),             lowerIsBetter: false },
+    { label: 'Taux install→QI',value: totals.qualRate,          prev: prevTotals?.qualRate,          display: fmtPct(totals.qualRate),            lowerIsBetter: false },
+  ];
+
+  return (
+    <div className="space-y-6">
+
+      {/* Error banner (data is mock) */}
+      {error && <ErrorBanner message={`${error} — données de démonstration affichées`} onRetry={fetchData} />}
+
+      {/* QI label + granularity toggle */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-3 py-1">
+          QI = <span className="font-mono font-semibold text-gray-700">{qualifiedInstallEvent}</span>
+        </span>
+        <span className="text-xs text-gray-400">· Cible taux QI : {(QUALITY_TARGET * 100).toFixed(0)}%</span>
+        <div className="ml-auto flex gap-1 bg-gray-100 rounded-lg p-1">
+          {(['day', 'week'] as Granularity[]).map((g) => (
+            <button
+              key={g}
+              onClick={() => setGranularity(g)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${granularity === g ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {g === 'day' ? 'Jour' : 'Semaine'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 1. KPI cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
+        {kpis.map((k) => (
+          <KpiCard
+            key={k.label}
+            label={k.label}
+            value={k.value}
+            prevValue={k.prev ?? null}
+            display={k.display}
+            lowerIsBetter={k.lowerIsBetter}
+          />
+        ))}
+      </div>
+
+      {/* 2 & 3. CPI vs CPQI | CPM */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <ChartCard title="CPI vs CPQI" subtitle="Coût par install vs install qualifiée — l'écart = prime de qualité">
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={dailyPoints} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+              <YAxis tickFormatter={(v) => `$${v.toFixed(0)}`} {...AXIS_COMMON} width={46} />
+              <Tooltip content={<MoneyTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="cpi"  name="CPI ($)"  stroke="#3b82f6" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="cpqi" name="CPQI ($)" stroke="#f97316" strokeWidth={2} dot={false} strokeDasharray="5 3" />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="CPM" subtitle="Coût pour mille impressions — indicateur du coût média">
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={dailyPoints} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+              <YAxis tickFormatter={(v) => `$${v.toFixed(1)}`} {...AXIS_COMMON} width={46} />
+              <Tooltip content={<MoneyTooltip />} />
+              <Line type="monotone" dataKey="cpm" name="CPM ($)" stroke="#6366f1" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      {/* 4 & 5. CTR | Taux install→QI */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <ChartCard title="CTR" subtitle="Qualité de l'accroche et de l'audience en haut du tunnel">
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={dailyPoints} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+              <YAxis tickFormatter={(v) => `${(v * 100).toFixed(2)}%`} {...AXIS_COMMON} width={52} />
+              <Tooltip content={<PctTooltip />} />
+              <Line type="monotone" dataKey="ctr" name="CTR" stroke="#10b981" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Taux Install → QI" subtitle="Qualité du trafic acquis — ligne rouge = objectif">
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={dailyPoints} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+              <YAxis tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} {...AXIS_COMMON} width={40} />
+              <Tooltip content={<PctTooltip />} />
+              <ReferenceLine
+                y={QUALITY_TARGET}
+                stroke="#ef4444"
+                strokeDasharray="4 2"
+                label={{ value: `Objectif ${(QUALITY_TARGET * 100).toFixed(0)}%`, position: 'insideTopRight', fontSize: 10, fill: '#ef4444' }}
+              />
+              <Line type="monotone" dataKey="qualRate" name="Taux QI" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      {/* 6. Funnel */}
+      <ChartCard
+        title="Tunnel de conversion"
+        subtitle="Impressions → Clics → Installs → Installs qualifiées · volume + taux de passage"
+      >
+        <AppFunnel
+          impressions={totals.impressions}
+          clicks={totals.clicks}
+          installs={totals.installs}
+          qualInstalls={totals.qualifiedInstalls}
+        />
+      </ChartCard>
+
+      {/* 7 & 8. Volume bar | Breakdown par campagne */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <ChartCard title="Volume Installs vs Installs qualifiées" subtitle="Stacked — vert = portion qualifiée">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={dailyPoints} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+              <YAxis {...AXIS_COMMON} width={35} />
+              <Tooltip content={<VolumeTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="nonQiInstalls"    name="Installs (hors QI)" fill="#93c5fd" stackId="a" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="qualifiedInstalls" name="Installs QI"        fill="#34d399" stackId="a" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard title="Comparatif par campagne" subtitle="CPI · CPQI par campagne (iOS vs Android, ou autre split)">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={campaignBars} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
+              <XAxis type="number" tickFormatter={(v) => `$${v.toFixed(0)}`} {...AXIS_COMMON} />
+              <YAxis dataKey="name" type="category" {...AXIS_COMMON} width={90} tick={{ ...AXIS_TICK, fontSize: 10 }} />
+              <Tooltip formatter={(v: number) => `$${v.toFixed(2)}`} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="CPI"  fill="#3b82f6" radius={[0, 3, 3, 0]} />
+              <Bar dataKey="CPQI" fill="#f97316" radius={[0, 3, 3, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
+
+      {/* iOS / SKAdNetwork disclaimer */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 flex gap-2 items-start">
+        <span className="mt-0.5">⚠️</span>
+        <span>
+          <strong>iOS / SKAdNetwork</strong> : les installs iOS des {IOS_LAG_DAYS} derniers jours sont incomplètes
+          en raison de la fenêtre d&apos;attribution et de l&apos;agrégation SKAN. Ne pas les traiter comme définitives.
+        </span>
+      </div>
+
+      {/* 9. Campaign table */}
+      <ChartCard title="Tableau par campagne" subtitle="Cliquer sur un en-tête pour trier">
+        <CampaignTable
+          campaigns={sortedCampaigns}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSort={handleSort}
+        />
+      </ChartCard>
+    </div>
+  );
+}
