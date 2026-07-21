@@ -66,6 +66,7 @@ function generateMockData(): AppInstallsResponse {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Granularity = 'day' | 'week';
+type OsFilter    = 'all' | 'ios' | 'android';
 type SortDir     = 'asc' | 'desc';
 
 interface DailyPoint {
@@ -89,6 +90,18 @@ interface DailyPoint {
 
 function fmtDisplayDate(dateStr: string): string {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+}
+
+function isIosCampaign(name: string): boolean {
+  return /\bios\b|iphone|ipad|apple/i.test(name);
+}
+
+function recomputeTotals(daily: AppDailyRow[]): AppTotals {
+  const t = daily.reduce(
+    (acc, r) => ({ spend: acc.spend + r.spend, impressions: acc.impressions + r.impressions, clicks: acc.clicks + r.clicks, installs: acc.installs + r.installs, qualifiedInstalls: acc.qualifiedInstalls + r.qualifiedInstalls }),
+    { spend: 0, impressions: 0, clicks: 0, installs: 0, qualifiedInstalls: 0 },
+  );
+  return { ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
 }
 
 function deriveMetrics(t: { spend: number; impressions: number; clicks: number; installs: number; qualifiedInstalls: number }) {
@@ -403,6 +416,7 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
   const [granularity, setGranularity] = useState<Granularity>('day');
+  const [osFilter,    setOsFilter]    = useState<OsFilter>('all');
   const [sortKey,     setSortKey]     = useState<SortKey>('spend');
   const [sortDir,     setSortDir]     = useState<SortDir>('desc');
 
@@ -427,34 +441,45 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Filter raw data by OS before all derived computations
+  const filteredData = useMemo(() => {
+    if (!data) return null;
+    if (osFilter === 'all') return data;
+    const keepCamp = (name: string) => osFilter === 'ios' ? isIosCampaign(name) : !isIosCampaign(name);
+    const campaigns = data.campaigns.filter((c) => keepCamp(c.name));
+    const campIds   = new Set(campaigns.map((c) => c.id));
+    const daily     = data.daily.filter((r) => campIds.has(r.campaignId));
+    return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null };
+  }, [data, osFilter]);
+
   const dailyPoints = useMemo<DailyPoint[]>(() => {
-    if (!data) return [];
-    const byDate = aggregateByDate(data.daily);
+    if (!filteredData) return [];
+    const byDate = aggregateByDate(filteredData.daily);
     return granularity === 'week' ? toWeekly(byDate) : byDate;
-  }, [data, granularity]);
+  }, [filteredData, granularity]);
 
   const sortedCampaigns = useMemo(() => {
-    if (!data) return [];
-    return [...data.campaigns].sort((a, b) => {
+    if (!filteredData) return [];
+    return [...filteredData.campaigns].sort((a, b) => {
       const diff = (a[sortKey] as number) - (b[sortKey] as number);
       return sortDir === 'desc' ? -diff : diff;
     });
-  }, [data, sortKey, sortDir]);
+  }, [filteredData, sortKey, sortDir]);
 
   // Per-campaign bar (chart 8)
   const campaignBars = useMemo(() => {
-    if (!data) return [];
-    return data.campaigns.map((c) => ({
+    if (!filteredData) return [];
+    return filteredData.campaigns.map((c) => ({
       name: c.name.replace(/picta\s*[—\-]\s*/i, '').replace(/app\s+install\s*/i, '').trim().slice(0, 18),
       CPI:  c.cpi,
       CPQI: c.cpqi,
       'Taux QI %': +(c.qualRate * 100).toFixed(1),
     }));
-  }, [data]);
+  }, [filteredData]);
 
   if (loading) return <LoadingState />;
 
-  const { totals, prevTotals, qualifiedInstallEvent } = data!;
+  const { totals, prevTotals, qualifiedInstallEvent } = filteredData ?? data!;
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
@@ -478,22 +503,39 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
       {/* Error banner (data is mock) */}
       {error && <ErrorBanner message={`${error} — données de démonstration affichées`} onRetry={fetchData} />}
 
-      {/* QI label + granularity toggle */}
+      {/* QI label + OS filter + granularity toggle */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-3 py-1">
           QI = <span className="font-mono font-semibold text-gray-700">{qualifiedInstallEvent}</span>
         </span>
         <span className="text-xs text-gray-400">· Cible taux QI : {(QUALITY_TARGET * 100).toFixed(0)}%</span>
-        <div className="ml-auto flex gap-1 bg-gray-100 rounded-lg p-1">
-          {(['day', 'week'] as Granularity[]).map((g) => (
-            <button
-              key={g}
-              onClick={() => setGranularity(g)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${granularity === g ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              {g === 'day' ? 'Jour' : 'Semaine'}
-            </button>
-          ))}
+
+        <div className="ml-auto flex items-center gap-3">
+          {/* OS filter */}
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {([['all', 'Tous'], ['ios', '🍎 iOS'], ['android', '🤖 Android']] as [OsFilter, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setOsFilter(val)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${osFilter === val ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Granularity */}
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {(['day', 'week'] as Granularity[]).map((g) => (
+              <button
+                key={g}
+                onClick={() => setGranularity(g)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${granularity === g ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {g === 'day' ? 'Jour' : 'Semaine'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
