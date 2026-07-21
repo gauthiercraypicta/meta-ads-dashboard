@@ -4,7 +4,7 @@ import { withCache } from '@/lib/apiCache';
 
 const TTL = 2 * 60 * 1000; // 2 min (account insights — fresher)
 
-const API_VERSION = 'v18.0';
+const API_VERSION = 'v21.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
 function getPeriodDays(datePreset: string): number | null {

@@ -53,7 +53,7 @@ export async function GET(request: Request) {
     });
 
     const res = await fetch(
-      `https://graph.facebook.com/v18.0/${adId}/insights?${params}`,
+      `https://graph.facebook.com/v21.0/${adId}/insights?${params}`,
       { next: { revalidate: 120 } },
     );
     const data = await res.json();

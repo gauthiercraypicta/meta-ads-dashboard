@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const API_VERSION = 'v18.0';
+const API_VERSION = 'v21.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
 export async function GET() {

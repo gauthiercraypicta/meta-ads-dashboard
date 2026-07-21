@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { withCache } from '@/lib/apiCache';
 
-const API_VERSION = 'v18.0';
+const API_VERSION = 'v21.0';
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const TTL = 10 * 60 * 1000;
 

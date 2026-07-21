@@ -39,7 +39,7 @@ export async function GET(request: Request) {
     });
 
     const res  = await fetch(
-      `https://graph.facebook.com/v18.0/${META_AD_ACCOUNT_ID}/ads?${params}`,
+      `https://graph.facebook.com/v21.0/${META_AD_ACCOUNT_ID}/ads?${params}`,
       { next: { revalidate: 0 } },
     );
     const data = await res.json();

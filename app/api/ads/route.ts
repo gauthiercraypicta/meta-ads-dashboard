@@ -62,7 +62,7 @@ export async function GET(request: Request) {
       access_token: META_ACCESS_TOKEN,
     });
 
-    const url = `https://graph.facebook.com/v18.0/${META_AD_ACCOUNT_ID}/ads?${params}`;
+    const url = `https://graph.facebook.com/v21.0/${META_AD_ACCOUNT_ID}/ads?${params}`;
     const allAds = await fetchAllPages(url);
 
     // Only return ads that had activity (insights data) during the selected period

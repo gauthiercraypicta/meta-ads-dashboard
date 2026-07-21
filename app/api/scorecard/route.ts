@@ -5,7 +5,7 @@ const TTL = 5 * 60 * 1000; // 5 min
 
 const META_ACCESS_TOKEN  = process.env.META_ACCESS_TOKEN!;
 const META_AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID!;
-const API_VER            = 'v18.0';
+const API_VER            = 'v21.0';
 const BASE               = `https://graph.facebook.com/${API_VER}/${META_AD_ACCOUNT_ID}`;
 
 // ── Purchase extraction (same priority as metaHelpers) ───────────────────────
