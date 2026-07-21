@@ -92,8 +92,14 @@ function fmtDisplayDate(dateStr: string): string {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 }
 
+function detectOs(name: string): 'ios' | 'android' | 'other' {
+  if (/\bios\b|iphone|ipad|\bapple\b/i.test(name)) return 'ios';
+  if (/android|google\s*play|\bgps\b/i.test(name))  return 'android';
+  return 'other';
+}
+
 function isIosCampaign(name: string): boolean {
-  return /\bios\b|iphone|ipad|apple/i.test(name);
+  return detectOs(name) === 'ios';
 }
 
 function recomputeTotals(daily: AppDailyRow[]): AppTotals {
@@ -441,14 +447,29 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // OS counts for button badges
+  const osCounts = useMemo(() => {
+    if (!data) return { ios: 0, android: 0 };
+    return data.campaigns.reduce(
+      (acc, c) => {
+        const os = detectOs(c.name);
+        if (os === 'ios')     acc.ios++;
+        else                  acc.android++; // 'android' + 'other' → bucket "Android/Autre"
+        return acc;
+      },
+      { ios: 0, android: 0 },
+    );
+  }, [data]);
+
   // Filter raw data by OS before all derived computations
   const filteredData = useMemo(() => {
     if (!data) return null;
     if (osFilter === 'all') return data;
-    const keepCamp = (name: string) => osFilter === 'ios' ? isIosCampaign(name) : !isIosCampaign(name);
-    const campaigns = data.campaigns.filter((c) => keepCamp(c.name));
-    const campIds   = new Set(campaigns.map((c) => c.id));
-    const daily     = data.daily.filter((r) => campIds.has(r.campaignId));
+    const campaigns = data.campaigns.filter((c) =>
+      osFilter === 'ios' ? detectOs(c.name) === 'ios' : detectOs(c.name) !== 'ios',
+    );
+    const campIds = new Set(campaigns.map((c) => c.id));
+    const daily   = data.daily.filter((r) => campIds.has(r.campaignId));
     return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null };
   }, [data, osFilter]);
 
@@ -479,7 +500,9 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
 
   if (loading) return <LoadingState />;
 
-  const { totals, prevTotals, qualifiedInstallEvent } = filteredData ?? data!;
+  const active     = filteredData ?? data!;
+  const { totals, prevTotals, qualifiedInstallEvent } = active;
+  const noResults  = osFilter !== 'all' && active.campaigns.length === 0;
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
@@ -503,34 +526,48 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
       {/* Error banner (data is mock) */}
       {error && <ErrorBanner message={`${error} — données de démonstration affichées`} onRetry={fetchData} />}
 
-      {/* QI label + OS filter + granularity toggle */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-3 py-1">
-          QI = <span className="font-mono font-semibold text-gray-700">{qualifiedInstallEvent}</span>
+      {/* ── Sticky control bar ─────────────────────────────────────────────── */}
+      <div className="sticky top-[121px] z-[9] -mx-6 px-6 py-2.5 bg-white border-b border-gray-100 shadow-sm flex flex-wrap items-center gap-3">
+
+        {/* QI event label */}
+        <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-200 rounded-full px-2.5 py-1 font-mono hidden sm:inline">
+          QI = {qualifiedInstallEvent}
         </span>
-        <span className="text-xs text-gray-400">· Cible taux QI : {(QUALITY_TARGET * 100).toFixed(0)}%</span>
 
         <div className="ml-auto flex items-center gap-3">
           {/* OS filter */}
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {([['all', 'Tous'], ['ios', '🍎 iOS'], ['android', '🤖 Android']] as [OsFilter, string][]).map(([val, label]) => (
+          <div className="flex gap-0.5 bg-gray-100 rounded-lg p-1">
+            {([
+              ['all',     'Tous',         null],
+              ['ios',     '🍎 iOS',       osCounts.ios],
+              ['android', '🤖 Autre OS',  osCounts.android],
+            ] as [OsFilter, string, number | null][]).map(([val, label, count]) => (
               <button
                 key={val}
                 onClick={() => setOsFilter(val)}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${osFilter === val ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                  osFilter === val
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
               >
                 {label}
+                {count !== null && (
+                  <span className={`text-[10px] rounded-full px-1.5 py-0.5 font-mono ${osFilter === val ? 'bg-blue-100 text-blue-600' : 'bg-gray-200 text-gray-500'}`}>
+                    {count}
+                  </span>
+                )}
               </button>
             ))}
           </div>
 
           {/* Granularity */}
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+          <div className="flex gap-0.5 bg-gray-100 rounded-lg p-1">
             {(['day', 'week'] as Granularity[]).map((g) => (
               <button
                 key={g}
                 onClick={() => setGranularity(g)}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${granularity === g ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${granularity === g ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 {g === 'day' ? 'Jour' : 'Semaine'}
               </button>
@@ -539,7 +576,23 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
         </div>
       </div>
 
-      {/* 1. KPI cards */}
+      {/* Empty state when OS filter finds nothing */}
+      {noResults && (
+        <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-400">
+          <p className="text-4xl">🔍</p>
+          <p className="text-sm font-medium text-gray-600">Aucune campagne {osFilter === 'ios' ? 'iOS' : 'Android'} détectée</p>
+          <p className="text-xs text-center max-w-sm">
+            La détection se base sur le nom de la campagne (mots-clés : <span className="font-mono">ios, iphone, ipad</span> pour iOS ;{' '}
+            <span className="font-mono">android, google play</span> pour Android).
+            Vérifiez que vos campagnes Meta sont nommées en conséquence.
+          </p>
+          <button onClick={() => setOsFilter('all')} className="mt-2 text-xs text-blue-600 underline hover:no-underline">
+            Voir toutes les campagnes
+          </button>
+        </div>
+      )}
+
+      {!noResults && <>{/* 1. KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
         {kpis.map((k) => (
           <KpiCard
@@ -677,6 +730,7 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
           onSort={handleSort}
         />
       </ChartCard>
+    </>}
     </div>
   );
 }
