@@ -11,8 +11,9 @@ import type { AppInstallsResponse, AppDailyRow, AppCampaignSummary, AppTotals } 
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const QUALITY_TARGET = 0.30; // cible taux install→QI (30 %)
-const IOS_LAG_DAYS   = 3;    // derniers N jours iOS non-définitifs (SKAdNetwork)
+const QUALITY_TARGET = 0.30;
+const IOS_LAG_DAYS   = 3;
+const IOS_DEVICES    = new Set(['mobile_phone_ios', 'ipad', 'iphone']);
 
 // ─── Mock data (dev offline fallback) ────────────────────────────────────────
 
@@ -21,8 +22,8 @@ function generateMockData(): AppInstallsResponse {
   const today  = new Date();
   const daily: AppDailyRow[] = [];
   const camps  = [
-    { id: 'c1', name: 'Picta — App Install iOS',     status: 'ACTIVE' },
-    { id: 'c2', name: 'Picta — App Install Android', status: 'ACTIVE' },
+    { id: 'c1', name: 'Picta — App Install iOS',     status: 'ACTIVE', os: 'ios'     },
+    { id: 'c2', name: 'Picta — App Install Android', status: 'ACTIVE', os: 'android' },
   ];
 
   for (let d = DAYS - 1; d >= 0; d--) {
@@ -51,7 +52,7 @@ function generateMockData(): AppInstallsResponse {
   const toSummary = (c: typeof camps[0]): AppCampaignSummary => {
     const rows = daily.filter((r) => r.campaignId === c.id);
     const t = rows.reduce((acc, r) => ({ spend: acc.spend + r.spend, impressions: acc.impressions + r.impressions, clicks: acc.clicks + r.clicks, installs: acc.installs + r.installs, qualifiedInstalls: acc.qualifiedInstalls + r.qualifiedInstalls }), { spend: 0, impressions: 0, clicks: 0, installs: 0, qualifiedInstalls: 0 });
-    return { id: c.id, name: c.name, status: c.status, ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
+    return { id: c.id, name: c.name, status: c.status, os: c.os, ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
   };
 
   const campaigns = camps.map(toSummary);
@@ -60,7 +61,14 @@ function generateMockData(): AppInstallsResponse {
   const totals: AppTotals = { ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
   const prevTotals: AppTotals = { ...totals, spend: totals.spend * 0.88, installs: Math.round(totals.installs * 0.82), qualifiedInstalls: Math.round(totals.qualifiedInstalls * 0.79), cpi: totals.cpi * 1.10, cpqi: totals.cpqi * 1.14, qualRate: totals.qualRate * 0.97 };
 
-  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)' };
+  const breakdown = daily.map((r) => ({
+    date: r.date, campaignId: r.campaignId, campaignName: r.campaignName,
+    device: r.campaignId === 'c1' ? 'mobile_phone_ios' : 'mobile_phone_android',
+    spend: r.spend, impressions: r.impressions, clicks: r.clicks,
+    installs: r.installs, qualifiedInstalls: r.qualifiedInstalls,
+  }));
+
+  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)', breakdown };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -90,16 +98,6 @@ interface DailyPoint {
 
 function fmtDisplayDate(dateStr: string): string {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-}
-
-function detectOs(name: string): 'ios' | 'android' | 'other' {
-  if (/\bios\b|iphone|ipad|\bapple\b/i.test(name)) return 'ios';
-  if (/android|google\s*play|\bgps\b/i.test(name))  return 'android';
-  return 'other';
-}
-
-function isIosCampaign(name: string): boolean {
-  return detectOs(name) === 'ios';
 }
 
 function recomputeTotals(daily: AppDailyRow[]): AppTotals {
@@ -154,6 +152,20 @@ function fmtMoney(v: number):   string { return v === 0 ? '—' : `$${v.toFixed(
 function fmtNum(v: number):     string { return v === 0 ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`; }
 function fmtPct(v: number):     string { return `${(v * 100).toFixed(1)}%`; }
 function fmtPctFine(v: number): string { return `${(v * 100).toFixed(2)}%`; }
+
+// ─── Last-value label (for per-campaign charts) ───────────────────────────────
+
+function makeLastLabel(total: number, color: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return function LastLabel(props: any) {
+    if (props.index !== total - 1 || typeof props.value !== 'number' || props.value === 0) return null;
+    return (
+      <text x={props.x + 8} y={props.y + 4} fill={color} fontSize={11} fontWeight={700}>
+        ${props.value.toFixed(0)}
+      </text>
+    );
+  };
+}
 
 // ─── Shared chart props ───────────────────────────────────────────────────────
 
@@ -447,29 +459,27 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // OS counts for button badges
+  // OS counts from campaign targeting (source of truth from Meta)
   const osCounts = useMemo(() => {
     if (!data) return { ios: 0, android: 0 };
     return data.campaigns.reduce(
       (acc, c) => {
-        const os = detectOs(c.name);
-        if (os === 'ios')     acc.ios++;
-        else                  acc.android++; // 'android' + 'other' → bucket "Android/Autre"
+        if (c.os === 'ios' || c.os === 'both') acc.ios++;
+        if (c.os === 'android' || c.os === 'both') acc.android++;
         return acc;
       },
       { ios: 0, android: 0 },
     );
   }, [data]);
 
-  // Filter raw data by OS before all derived computations
+  // Filter by OS using campaign targeting (user_os) — reliable regardless of delivery device strings
   const filteredData = useMemo(() => {
     if (!data) return null;
     if (osFilter === 'all') return data;
-    const campaigns = data.campaigns.filter((c) =>
-      osFilter === 'ios' ? detectOs(c.name) === 'ios' : detectOs(c.name) !== 'ios',
-    );
-    const campIds = new Set(campaigns.map((c) => c.id));
-    const daily   = data.daily.filter((r) => campIds.has(r.campaignId));
+    const isIos     = osFilter === 'ios';
+    const campaigns = data.campaigns.filter((c) => isIos ? (c.os === 'ios' || c.os === 'both') : (c.os === 'android' || c.os === 'both'));
+    const campIds   = new Set(campaigns.map((c) => c.id));
+    const daily     = data.daily.filter((r) => campIds.has(r.campaignId));
     return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null };
   }, [data, osFilter]);
 
@@ -496,6 +506,17 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
       CPQI: c.cpqi,
       'Taux QI %': +(c.qualRate * 100).toFixed(1),
     }));
+  }, [filteredData]);
+
+  // Per-campaign daily CPI/CPQI series
+  const perCampaignPoints = useMemo<Map<string, DailyPoint[]>>(() => {
+    if (!filteredData) return new Map();
+    const result = new Map<string, DailyPoint[]>();
+    for (const camp of filteredData.campaigns) {
+      const rows = filteredData.daily.filter((r) => r.campaignId === camp.id);
+      result.set(camp.id, aggregateByDate(rows));
+    }
+    return result;
   }, [filteredData]);
 
   if (loading) return <LoadingState />;
@@ -580,11 +601,10 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
       {noResults && (
         <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-400">
           <p className="text-4xl">🔍</p>
-          <p className="text-sm font-medium text-gray-600">Aucune campagne {osFilter === 'ios' ? 'iOS' : 'Android'} détectée</p>
+          <p className="text-sm font-medium text-gray-600">Aucune campagne {osFilter === 'ios' ? 'iOS' : 'Android'} trouvée</p>
           <p className="text-xs text-center max-w-sm">
-            La détection se base sur le nom de la campagne (mots-clés : <span className="font-mono">ios, iphone, ipad</span> pour iOS ;{' '}
-            <span className="font-mono">android, google play</span> pour Android).
-            Vérifiez que vos campagnes Meta sont nommées en conséquence.
+            Le filtre se base sur le ciblage OS (<span className="font-mono">user_os</span>) déclaré dans chaque campagne Meta.
+            Aucune campagne de type <strong>{osFilter === 'ios' ? 'iOS' : 'Android'}</strong> n&apos;a été détectée dans votre compte.
           </p>
           <button onClick={() => setOsFilter('all')} className="mt-2 text-xs text-blue-600 underline hover:no-underline">
             Voir toutes les campagnes
@@ -721,7 +741,45 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
         </span>
       </div>
 
-      {/* 9. Campaign table */}
+      {/* 9. Per-campaign CPI / CPQI charts */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">CPI vs CPQI par campagne</h3>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {filteredData?.campaigns.map((camp) => {
+            const pts = granularity === 'week' ? toWeekly(perCampaignPoints.get(camp.id) ?? []) : (perCampaignPoints.get(camp.id) ?? []);
+            if (!pts.length) return null;
+            return (
+              <ChartCard
+                key={camp.id}
+                title={camp.name}
+                subtitle="Coût/install vs coût/download qualifié"
+              >
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={pts} margin={{ top: 4, right: 52, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                    <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+                    <YAxis tickFormatter={(v) => `$${(v as number).toFixed(0)}`} {...AXIS_COMMON} width={46} />
+                    <Tooltip content={<MoneyTooltip />} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line
+                      type="monotone" dataKey="cpi" name="Coût / install ($)"
+                      stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }}
+                      label={makeLastLabel(pts.length, '#3b82f6')}
+                    />
+                    <Line
+                      type="monotone" dataKey="cpqi" name="Coût / download qualifié ($)"
+                      stroke="#ef4444" strokeWidth={2} dot={{ r: 3, fill: '#ef4444' }}
+                      label={makeLastLabel(pts.length, '#ef4444')}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 10. Campaign table */}
       <ChartCard title="Tableau par campagne" subtitle="Cliquer sur un en-tête pour trier">
         <CampaignTable
           campaigns={sortedCampaigns}

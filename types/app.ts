@@ -15,6 +15,7 @@ export interface AppCampaignSummary {
   id: string;
   name: string;
   status: string;
+  os: string; // 'ios' | 'android' | 'both' | 'unknown'
   spend: number;
   impressions: number;
   clicks: number;
@@ -44,10 +45,23 @@ export interface AppTotals {
   qualRate: number;
 }
 
+export interface AppDeviceRow {
+  date: string;
+  campaignId: string;
+  campaignName: string;
+  device: string; // 'mobile_phone_ios' | 'mobile_phone_android' | 'ipad' | 'desktop' | ...
+  spend: number;
+  impressions: number;
+  clicks: number;
+  installs: number;
+  qualifiedInstalls: number;
+}
+
 export interface AppInstallsResponse {
   daily: AppDailyRow[];
   campaigns: AppCampaignSummary[];
   totals: AppTotals;
   prevTotals: AppTotals | null;
   qualifiedInstallEvent: string;
+  breakdown: AppDeviceRow[]; // par impression_device — sert au filtre iOS/Android
 }
