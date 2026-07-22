@@ -381,11 +381,16 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
           {campaigns.map((camp, i) => (
             <tr key={camp.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
               {cols.map((c) => (
-                <td key={c.key} className={`px-3 py-2.5 font-mono ${c.key === 'name' ? 'font-sans text-gray-800 font-medium max-w-[200px] truncate' : 'text-gray-700'}`}>
+                <td key={c.key} className={`px-3 py-2.5 font-mono ${c.key === 'name' ? 'font-sans text-gray-800 font-medium max-w-[220px]' : 'text-gray-700'}`}>
                   {c.key === 'status' ? (
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${camp.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                       {camp.status === 'ACTIVE' && <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1" />}
                       {camp.status}
+                    </span>
+                  ) : c.key === 'name' ? (
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="flex-shrink-0 text-sm">{camp.os === 'ios' ? '🍎' : camp.os === 'android' ? '🤖' : '🍎🤖'}</span>
+                      <span className="truncate">{camp.name}</span>
                     </span>
                   ) : c.fmt(camp)}
                 </td>
@@ -741,39 +746,45 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
         </span>
       </div>
 
-      {/* 9. Per-campaign CPI / CPQI charts */}
+      {/* 9. Per-campaign CPI / CPQI charts — split iOS | Android */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">CPI vs CPQI par campagne</h3>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {filteredData?.campaigns.map((camp) => {
-            const pts = granularity === 'week' ? toWeekly(perCampaignPoints.get(camp.id) ?? []) : (perCampaignPoints.get(camp.id) ?? []);
-            if (!pts.length) return null;
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">CPI vs CPQI par campagne</h3>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+          {(['ios', 'android'] as const).map((side) => {
+            const sideLabel  = side === 'ios' ? '🍎 iOS' : '🤖 Android';
+            const sideCamps  = (filteredData?.campaigns ?? []).filter((c) =>
+              side === 'ios' ? (c.os === 'ios' || c.os === 'both') : (c.os !== 'ios'),
+            );
             return (
-              <ChartCard
-                key={camp.id}
-                title={camp.name}
-                subtitle="Coût/install vs coût/download qualifié"
-              >
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={pts} margin={{ top: 4, right: 52, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-                    <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
-                    <YAxis tickFormatter={(v) => `$${(v as number).toFixed(0)}`} {...AXIS_COMMON} width={46} />
-                    <Tooltip content={<MoneyTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line
-                      type="monotone" dataKey="cpi" name="Coût / install ($)"
-                      stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }}
-                      label={makeLastLabel(pts.length, '#3b82f6')}
-                    />
-                    <Line
-                      type="monotone" dataKey="cpqi" name="Coût / download qualifié ($)"
-                      stroke="#ef4444" strokeWidth={2} dot={{ r: 3, fill: '#ef4444' }}
-                      label={makeLastLabel(pts.length, '#ef4444')}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartCard>
+              <div key={side} className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+                  <span className="text-sm font-semibold text-gray-800">{sideLabel}</span>
+                  <span className="text-xs text-gray-400 font-mono bg-gray-100 rounded-full px-2 py-0.5">{sideCamps.length}</span>
+                </div>
+                {sideCamps.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-4 text-center">Aucune campagne {side === 'ios' ? 'iOS' : 'Android'}</p>
+                ) : sideCamps.map((camp) => {
+                  const pts = granularity === 'week'
+                    ? toWeekly(perCampaignPoints.get(camp.id) ?? [])
+                    : (perCampaignPoints.get(camp.id) ?? []);
+                  if (!pts.length) return null;
+                  return (
+                    <ChartCard key={camp.id} title={camp.name} subtitle="Coût/install vs coût/download qualifié">
+                      <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={pts} margin={{ top: 4, right: 52, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                          <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+                          <YAxis tickFormatter={(v) => `$${(v as number).toFixed(0)}`} {...AXIS_COMMON} width={46} />
+                          <Tooltip content={<MoneyTooltip />} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Line type="monotone" dataKey="cpi" name="Coût / install ($)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }} label={makeLastLabel(pts.length, '#3b82f6')} />
+                          <Line type="monotone" dataKey="cpqi" name="Coût / download qualifié ($)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3, fill: '#ef4444' }} label={makeLastLabel(pts.length, '#ef4444')} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+                  );
+                })}
+              </div>
             );
           })}
         </div>
