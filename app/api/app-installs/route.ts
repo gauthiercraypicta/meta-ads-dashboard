@@ -103,26 +103,40 @@ export async function GET(request: Request) {
 
   try {
     const data = await withCache<AppInstallsResponse>(cacheKey, TTL, async () => {
-      // 1. Fetch app campaigns (filter by objective)
+      // 1. Fetch app campaigns (filter by objective) + targeting for OS detection
       const campParams = new URLSearchParams({
-        fields:     'id,name,status,objective',
+        fields:     'id,name,status,objective,targeting',
         filtering:  JSON.stringify([{ field: 'objective', operator: 'IN', value: APP_OBJECTIVES }]),
         access_token: META_ACCESS_TOKEN!,
         limit:      '200',
       });
-      const campaigns = await fetchAllPages<{ id: string; name: string; status: string }>(
+      const campaigns = await fetchAllPages<{ id: string; name: string; status: string; targeting?: { user_os?: string[] } }>(
         `${BASE_URL}/${META_AD_ACCOUNT_ID}/campaigns?${campParams}`,
       );
 
       console.log(`[app-installs] Found ${campaigns.length} app campaign(s)`);
+      campaigns.forEach((c) => console.log(`[app-installs] Campaign "${c.name}" user_os=${JSON.stringify(c.targeting?.user_os ?? [])}`));
 
       if (!campaigns.length) {
         const empty = computeTotals([]);
         return { daily: [], campaigns: [], totals: empty, prevTotals: null, qualifiedInstallEvent: QUALIFIED_INSTALL_EVENT, breakdown: [] };
       }
 
+      const detectCampOs = (c: { targeting?: { user_os?: string[] }; name: string }): string => {
+        const userOs = (c.targeting?.user_os ?? []).map((s) => s.toLowerCase());
+        const hasIos     = userOs.some((s) => s.includes('ios'));
+        const hasAndroid = userOs.some((s) => s.includes('android'));
+        if (hasIos && hasAndroid) return 'both';
+        if (hasIos)               return 'ios';
+        if (hasAndroid)           return 'android';
+        // Fallback to campaign name keywords
+        if (/\bios\b|iphone|ipad/i.test(c.name))  return 'ios';
+        if (/android/i.test(c.name))               return 'android';
+        return 'both'; // unknown → show in both tabs
+      };
+
       const appCampIds = new Set(campaigns.map((c) => c.id));
-      const campMeta   = new Map(campaigns.map((c) => [c.id, { name: c.name, status: c.status }]));
+      const campMeta   = new Map(campaigns.map((c) => [c.id, { name: c.name, status: c.status, os: detectCampOs(c) }]));
 
       // 2. Fetch daily insights — current + previous period in parallel
       const currentRange = getTimeRange(datePreset);
@@ -226,7 +240,7 @@ export async function GET(request: Request) {
 
       const campaignSummaries: AppCampaignSummary[] = Array.from(campAgg.entries())
         .map(([id, t]) => ({
-          id, name: campMeta.get(id)?.name ?? id, status: campMeta.get(id)?.status ?? 'UNKNOWN',
+          id, name: campMeta.get(id)?.name ?? id, status: campMeta.get(id)?.status ?? 'UNKNOWN', os: campMeta.get(id)?.os ?? 'both',
           ...t,
           cpi:         t.installs          > 0 ? t.spend / t.installs          : 0,
           cpqi:        t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0,

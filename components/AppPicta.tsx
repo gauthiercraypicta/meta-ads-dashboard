@@ -22,8 +22,8 @@ function generateMockData(): AppInstallsResponse {
   const today  = new Date();
   const daily: AppDailyRow[] = [];
   const camps  = [
-    { id: 'c1', name: 'Picta — App Install iOS',     status: 'ACTIVE' },
-    { id: 'c2', name: 'Picta — App Install Android', status: 'ACTIVE' },
+    { id: 'c1', name: 'Picta — App Install iOS',     status: 'ACTIVE', os: 'ios'     },
+    { id: 'c2', name: 'Picta — App Install Android', status: 'ACTIVE', os: 'android' },
   ];
 
   for (let d = DAYS - 1; d >= 0; d--) {
@@ -52,7 +52,7 @@ function generateMockData(): AppInstallsResponse {
   const toSummary = (c: typeof camps[0]): AppCampaignSummary => {
     const rows = daily.filter((r) => r.campaignId === c.id);
     const t = rows.reduce((acc, r) => ({ spend: acc.spend + r.spend, impressions: acc.impressions + r.impressions, clicks: acc.clicks + r.clicks, installs: acc.installs + r.installs, qualifiedInstalls: acc.qualifiedInstalls + r.qualifiedInstalls }), { spend: 0, impressions: 0, clicks: 0, installs: 0, qualifiedInstalls: 0 });
-    return { id: c.id, name: c.name, status: c.status, ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
+    return { id: c.id, name: c.name, status: c.status, os: c.os, ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
   };
 
   const campaigns = camps.map(toSummary);
@@ -445,40 +445,27 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // OS counts derived from real Meta breakdown (impression_device)
+  // OS counts from campaign targeting (source of truth from Meta)
   const osCounts = useMemo(() => {
-    const bd = data?.breakdown ?? [];
-    const iosCampIds   = new Set(bd.filter((r) => IOS_DEVICES.has(r.device)).map((r) => r.campaignId));
-    const otherCampIds = new Set(bd.filter((r) => !IOS_DEVICES.has(r.device)).map((r) => r.campaignId));
-    return { ios: iosCampIds.size, android: otherCampIds.size };
+    if (!data) return { ios: 0, android: 0 };
+    return data.campaigns.reduce(
+      (acc, c) => {
+        if (c.os === 'ios' || c.os === 'both') acc.ios++;
+        if (c.os === 'android' || c.os === 'both') acc.android++;
+        return acc;
+      },
+      { ios: 0, android: 0 },
+    );
   }, [data]);
 
-  // Filter data by OS using Meta's impression_device breakdown
+  // Filter by OS using campaign targeting (user_os) — reliable regardless of delivery device strings
   const filteredData = useMemo(() => {
     if (!data) return null;
     if (osFilter === 'all') return data;
-
-    const bd     = data.breakdown ?? [];
-    const isIos  = osFilter === 'ios';
-    const subset = bd.filter((r) => (isIos ? IOS_DEVICES.has(r.device) : !IOS_DEVICES.has(r.device)));
-
-    // Aggregate breakdown rows into daily rows grouped by {date, campaignId}
-    const dayMap = new Map<string, AppDailyRow>();
-    for (const r of subset) {
-      const key = `${r.date}__${r.campaignId}`;
-      const e   = dayMap.get(key);
-      if (!e) {
-        dayMap.set(key, { date: r.date, campaignId: r.campaignId, campaignName: r.campaignName, reach: 0, frequency: 0, spend: r.spend, impressions: r.impressions, clicks: r.clicks, installs: r.installs, qualifiedInstalls: r.qualifiedInstalls });
-      } else {
-        e.spend += r.spend; e.impressions += r.impressions; e.clicks += r.clicks;
-        e.installs += r.installs; e.qualifiedInstalls += r.qualifiedInstalls;
-      }
-    }
-    const daily = Array.from(dayMap.values());
-
-    const campIds = new Set(daily.map((r) => r.campaignId));
-    const campaigns = data.campaigns.filter((c) => campIds.has(c.id));
-
+    const isIos     = osFilter === 'ios';
+    const campaigns = data.campaigns.filter((c) => isIos ? (c.os === 'ios' || c.os === 'both') : (c.os === 'android' || c.os === 'both'));
+    const campIds   = new Set(campaigns.map((c) => c.id));
+    const daily     = data.daily.filter((r) => campIds.has(r.campaignId));
     return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null };
   }, [data, osFilter]);
 
@@ -589,10 +576,10 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
       {noResults && (
         <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-400">
           <p className="text-4xl">🔍</p>
-          <p className="text-sm font-medium text-gray-600">Aucune diffusion {osFilter === 'ios' ? 'iOS' : 'Android'} détectée sur la période</p>
+          <p className="text-sm font-medium text-gray-600">Aucune campagne {osFilter === 'ios' ? 'iOS' : 'Android'} trouvée</p>
           <p className="text-xs text-center max-w-sm">
-            Le filtre utilise le champ <span className="font-mono">impression_device</span> de l&apos;API Meta.
-            Aucune impression {osFilter === 'ios' ? 'iOS (mobile_phone_ios, ipad, iphone)' : 'non-iOS'} n&apos;a été enregistrée sur la période sélectionnée.
+            Le filtre se base sur le ciblage OS (<span className="font-mono">user_os</span>) déclaré dans chaque campagne Meta.
+            Aucune campagne de type <strong>{osFilter === 'ios' ? 'iOS' : 'Android'}</strong> n&apos;a été détectée dans votre compte.
           </p>
           <button onClick={() => setOsFilter('all')} className="mt-2 text-xs text-blue-600 underline hover:no-underline">
             Voir toutes les campagnes

@@ -15,6 +15,7 @@ export interface AppCampaignSummary {
   id: string;
   name: string;
   status: string;
+  os: string; // 'ios' | 'android' | 'both' | 'unknown'
   spend: number;
   impressions: number;
   clicks: number;
