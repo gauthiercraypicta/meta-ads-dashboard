@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { withCache } from '@/lib/apiCache';
 import type { ActionData } from '@/types/meta';
-import type { AppDailyRow, AppCampaignSummary, AppTotals, AppInstallsResponse } from '@/types/app';
+import type { AppDailyRow, AppCampaignSummary, AppTotals, AppDeviceRow, AppInstallsResponse } from '@/types/app';
 
 const API_VERSION = 'v21.0';
 const BASE_URL    = `https://graph.facebook.com/${API_VERSION}`;
@@ -118,7 +118,7 @@ export async function GET(request: Request) {
 
       if (!campaigns.length) {
         const empty = computeTotals([]);
-        return { daily: [], campaigns: [], totals: empty, prevTotals: null, qualifiedInstallEvent: QUALIFIED_INSTALL_EVENT };
+        return { daily: [], campaigns: [], totals: empty, prevTotals: null, qualifiedInstallEvent: QUALIFIED_INSTALL_EVENT, breakdown: [] };
       }
 
       const appCampIds = new Set(campaigns.map((c) => c.id));
@@ -140,9 +140,23 @@ export async function GET(request: Request) {
         return `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${p}`;
       };
 
-      const [currentRaw, prevRaw] = await Promise.all([
+      const breakdownUrl = (() => {
+        const p = new URLSearchParams({
+          level:          'campaign',
+          time_increment: '1',
+          breakdowns:     'impression_device',
+          fields:         'date_start,campaign_id,campaign_name,spend,impressions,clicks,actions,action_values',
+          time_range:     JSON.stringify(currentRange),
+          access_token:   META_ACCESS_TOKEN!,
+          limit:          '500',
+        });
+        return `${BASE_URL}/${META_AD_ACCOUNT_ID}/insights?${p}`;
+      })();
+
+      const [currentRaw, prevRaw, breakdownRaw] = await Promise.all([
         fetchAllPages<Record<string, unknown>>(insightUrl(currentRange)),
         fetchAllPages<Record<string, unknown>>(insightUrl(prevRange)),
+        fetchAllPages<Record<string, unknown>>(breakdownUrl),
       ]);
 
       // 3. Parse insight rows — filter to app campaigns only
@@ -177,6 +191,27 @@ export async function GET(request: Request) {
       const currentDaily = currentRaw.map(parseRow).filter(Boolean) as AppDailyRow[];
       const prevDaily    = prevRaw.map(parseRow).filter(Boolean) as AppDailyRow[];
 
+      // 3b. Parse device breakdown rows (impression_device)
+      const parseBreakdownRow = (row: Record<string, unknown>): AppDeviceRow | null => {
+        const campaignId = row.campaign_id as string;
+        if (!appCampIds.has(campaignId)) return null;
+        const actions  = row.actions as ActionData[] | undefined;
+        const spend    = parseFloat(row.spend as string || '0') || 0;
+        const impr     = parseInt(row.impressions as string || '0', 10) || 0;
+        const clicks   = parseInt(row.clicks as string || '0', 10) || 0;
+        const installs = extractInstalls(actions);
+        const qi       = actionVal(actions, QUALIFIED_INSTALL_EVENT);
+        return {
+          date:         row.date_start as string,
+          campaignId,
+          campaignName: campMeta.get(campaignId)?.name ?? (row.campaign_name as string) ?? campaignId,
+          device:       (row.impression_device as string) ?? 'unknown',
+          spend, impressions: impr, clicks, installs, qualifiedInstalls: qi,
+        };
+      };
+
+      const breakdown = breakdownRaw.map(parseBreakdownRow).filter(Boolean) as AppDeviceRow[];
+
       // 4. Build per-campaign summaries
       const campAgg = new Map<string, { spend: number; impressions: number; clicks: number; installs: number; qualifiedInstalls: number }>();
       for (const r of currentDaily) {
@@ -209,6 +244,7 @@ export async function GET(request: Request) {
         totals:    computeTotals(currentDaily),
         prevTotals: prevDaily.length > 0 ? computeTotals(prevDaily) : null,
         qualifiedInstallEvent: QUALIFIED_INSTALL_EVENT,
+        breakdown,
       };
     });
 

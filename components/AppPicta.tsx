@@ -11,8 +11,9 @@ import type { AppInstallsResponse, AppDailyRow, AppCampaignSummary, AppTotals } 
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const QUALITY_TARGET = 0.30; // cible taux install→QI (30 %)
-const IOS_LAG_DAYS   = 3;    // derniers N jours iOS non-définitifs (SKAdNetwork)
+const QUALITY_TARGET = 0.30;
+const IOS_LAG_DAYS   = 3;
+const IOS_DEVICES    = new Set(['mobile_phone_ios', 'ipad', 'iphone']);
 
 // ─── Mock data (dev offline fallback) ────────────────────────────────────────
 
@@ -60,7 +61,14 @@ function generateMockData(): AppInstallsResponse {
   const totals: AppTotals = { ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qualifiedInstalls > 0 ? t.spend / t.qualifiedInstalls : 0, cpm: t.impressions > 0 ? (t.spend / t.impressions) * 1000 : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpc: t.clicks > 0 ? t.spend / t.clicks : 0, installRate: t.clicks > 0 ? t.installs / t.clicks : 0, qualRate: t.installs > 0 ? t.qualifiedInstalls / t.installs : 0 };
   const prevTotals: AppTotals = { ...totals, spend: totals.spend * 0.88, installs: Math.round(totals.installs * 0.82), qualifiedInstalls: Math.round(totals.qualifiedInstalls * 0.79), cpi: totals.cpi * 1.10, cpqi: totals.cpqi * 1.14, qualRate: totals.qualRate * 0.97 };
 
-  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)' };
+  const breakdown = daily.map((r) => ({
+    date: r.date, campaignId: r.campaignId, campaignName: r.campaignName,
+    device: r.campaignId === 'c1' ? 'mobile_phone_ios' : 'mobile_phone_android',
+    spend: r.spend, impressions: r.impressions, clicks: r.clicks,
+    installs: r.installs, qualifiedInstalls: r.qualifiedInstalls,
+  }));
+
+  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)', breakdown };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -90,16 +98,6 @@ interface DailyPoint {
 
 function fmtDisplayDate(dateStr: string): string {
   return new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-}
-
-function detectOs(name: string): 'ios' | 'android' | 'other' {
-  if (/\bios\b|iphone|ipad|\bapple\b/i.test(name)) return 'ios';
-  if (/android|google\s*play|\bgps\b/i.test(name))  return 'android';
-  return 'other';
-}
-
-function isIosCampaign(name: string): boolean {
-  return detectOs(name) === 'ios';
 }
 
 function recomputeTotals(daily: AppDailyRow[]): AppTotals {
@@ -447,29 +445,40 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // OS counts for button badges
+  // OS counts derived from real Meta breakdown (impression_device)
   const osCounts = useMemo(() => {
-    if (!data) return { ios: 0, android: 0 };
-    return data.campaigns.reduce(
-      (acc, c) => {
-        const os = detectOs(c.name);
-        if (os === 'ios')     acc.ios++;
-        else                  acc.android++; // 'android' + 'other' → bucket "Android/Autre"
-        return acc;
-      },
-      { ios: 0, android: 0 },
-    );
+    const bd = data?.breakdown ?? [];
+    const iosCampIds   = new Set(bd.filter((r) => IOS_DEVICES.has(r.device)).map((r) => r.campaignId));
+    const otherCampIds = new Set(bd.filter((r) => !IOS_DEVICES.has(r.device)).map((r) => r.campaignId));
+    return { ios: iosCampIds.size, android: otherCampIds.size };
   }, [data]);
 
-  // Filter raw data by OS before all derived computations
+  // Filter data by OS using Meta's impression_device breakdown
   const filteredData = useMemo(() => {
     if (!data) return null;
     if (osFilter === 'all') return data;
-    const campaigns = data.campaigns.filter((c) =>
-      osFilter === 'ios' ? detectOs(c.name) === 'ios' : detectOs(c.name) !== 'ios',
-    );
-    const campIds = new Set(campaigns.map((c) => c.id));
-    const daily   = data.daily.filter((r) => campIds.has(r.campaignId));
+
+    const bd     = data.breakdown ?? [];
+    const isIos  = osFilter === 'ios';
+    const subset = bd.filter((r) => (isIos ? IOS_DEVICES.has(r.device) : !IOS_DEVICES.has(r.device)));
+
+    // Aggregate breakdown rows into daily rows grouped by {date, campaignId}
+    const dayMap = new Map<string, AppDailyRow>();
+    for (const r of subset) {
+      const key = `${r.date}__${r.campaignId}`;
+      const e   = dayMap.get(key);
+      if (!e) {
+        dayMap.set(key, { date: r.date, campaignId: r.campaignId, campaignName: r.campaignName, reach: 0, frequency: 0, spend: r.spend, impressions: r.impressions, clicks: r.clicks, installs: r.installs, qualifiedInstalls: r.qualifiedInstalls });
+      } else {
+        e.spend += r.spend; e.impressions += r.impressions; e.clicks += r.clicks;
+        e.installs += r.installs; e.qualifiedInstalls += r.qualifiedInstalls;
+      }
+    }
+    const daily = Array.from(dayMap.values());
+
+    const campIds = new Set(daily.map((r) => r.campaignId));
+    const campaigns = data.campaigns.filter((c) => campIds.has(c.id));
+
     return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null };
   }, [data, osFilter]);
 
@@ -580,11 +589,10 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
       {noResults && (
         <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-400">
           <p className="text-4xl">🔍</p>
-          <p className="text-sm font-medium text-gray-600">Aucune campagne {osFilter === 'ios' ? 'iOS' : 'Android'} détectée</p>
+          <p className="text-sm font-medium text-gray-600">Aucune diffusion {osFilter === 'ios' ? 'iOS' : 'Android'} détectée sur la période</p>
           <p className="text-xs text-center max-w-sm">
-            La détection se base sur le nom de la campagne (mots-clés : <span className="font-mono">ios, iphone, ipad</span> pour iOS ;{' '}
-            <span className="font-mono">android, google play</span> pour Android).
-            Vérifiez que vos campagnes Meta sont nommées en conséquence.
+            Le filtre utilise le champ <span className="font-mono">impression_device</span> de l&apos;API Meta.
+            Aucune impression {osFilter === 'ios' ? 'iOS (mobile_phone_ios, ipad, iphone)' : 'non-iOS'} n&apos;a été enregistrée sur la période sélectionnée.
           </p>
           <button onClick={() => setOsFilter('all')} className="mt-2 text-xs text-blue-600 underline hover:no-underline">
             Voir toutes les campagnes
