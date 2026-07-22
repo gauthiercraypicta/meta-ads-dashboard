@@ -153,6 +153,20 @@ function fmtNum(v: number):     string { return v === 0 ? '—' : v >= 1000 ? `$
 function fmtPct(v: number):     string { return `${(v * 100).toFixed(1)}%`; }
 function fmtPctFine(v: number): string { return `${(v * 100).toFixed(2)}%`; }
 
+// ─── Last-value label (for per-campaign charts) ───────────────────────────────
+
+function makeLastLabel(total: number, color: string) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return function LastLabel(props: any) {
+    if (props.index !== total - 1 || typeof props.value !== 'number' || props.value === 0) return null;
+    return (
+      <text x={props.x + 8} y={props.y + 4} fill={color} fontSize={11} fontWeight={700}>
+        ${props.value.toFixed(0)}
+      </text>
+    );
+  };
+}
+
 // ─── Shared chart props ───────────────────────────────────────────────────────
 
 const AXIS_TICK = { fontSize: 11, fill: '#9CA3AF' };
@@ -494,6 +508,17 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
     }));
   }, [filteredData]);
 
+  // Per-campaign daily CPI/CPQI series
+  const perCampaignPoints = useMemo<Map<string, DailyPoint[]>>(() => {
+    if (!filteredData) return new Map();
+    const result = new Map<string, DailyPoint[]>();
+    for (const camp of filteredData.campaigns) {
+      const rows = filteredData.daily.filter((r) => r.campaignId === camp.id);
+      result.set(camp.id, aggregateByDate(rows));
+    }
+    return result;
+  }, [filteredData]);
+
   if (loading) return <LoadingState />;
 
   const active     = filteredData ?? data!;
@@ -716,7 +741,45 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
         </span>
       </div>
 
-      {/* 9. Campaign table */}
+      {/* 9. Per-campaign CPI / CPQI charts */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">CPI vs CPQI par campagne</h3>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {filteredData?.campaigns.map((camp) => {
+            const pts = granularity === 'week' ? toWeekly(perCampaignPoints.get(camp.id) ?? []) : (perCampaignPoints.get(camp.id) ?? []);
+            if (!pts.length) return null;
+            return (
+              <ChartCard
+                key={camp.id}
+                title={camp.name}
+                subtitle="Coût/install vs coût/download qualifié"
+              >
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={pts} margin={{ top: 4, right: 52, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                    <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+                    <YAxis tickFormatter={(v) => `$${(v as number).toFixed(0)}`} {...AXIS_COMMON} width={46} />
+                    <Tooltip content={<MoneyTooltip />} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line
+                      type="monotone" dataKey="cpi" name="Coût / install ($)"
+                      stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }}
+                      label={makeLastLabel(pts.length, '#3b82f6')}
+                    />
+                    <Line
+                      type="monotone" dataKey="cpqi" name="Coût / download qualifié ($)"
+                      stroke="#ef4444" strokeWidth={2} dot={{ r: 3, fill: '#ef4444' }}
+                      label={makeLastLabel(pts.length, '#ef4444')}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 10. Campaign table */}
       <ChartCard title="Tableau par campagne" subtitle="Cliquer sur un en-tête pour trier">
         <CampaignTable
           campaigns={sortedCampaigns}
