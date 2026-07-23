@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { withCache } from '@/lib/apiCache';
 import type { ActionData } from '@/types/meta';
-import type { AppDailyRow, AppCampaignSummary, AppTotals, AppDeviceRow, AppInstallsResponse } from '@/types/app';
+import type { AppDailyRow, AppCampaignSummary, AppTotals, AppDeviceRow, AppVideoMetrics, AppInstallsResponse } from '@/types/app';
 
 const API_VERSION = 'v21.0';
 const BASE_URL    = `https://graph.facebook.com/${API_VERSION}`;
@@ -15,7 +15,8 @@ const QUALIFIED_INSTALL_EVENT =
 const APP_OBJECTIVES = ['OUTCOME_APP_PROMOTION', 'APP_INSTALLS'];
 
 const INSIGHT_FIELDS =
-  'date_start,campaign_id,campaign_name,spend,impressions,reach,inline_link_clicks,clicks,ctr,cpm,cpc,frequency,actions,action_values';
+  'date_start,campaign_id,campaign_name,spend,impressions,reach,inline_link_clicks,clicks,ctr,cpm,cpc,frequency,actions,action_values,' +
+  'video_play_actions,video_avg_time_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,11 @@ function getPrevRange(curr: { since: string; until: string }): { since: string; 
 
 function actionVal(actions: ActionData[] | undefined, type: string): number {
   return parseFloat(actions?.find((a) => a.action_type === type)?.value ?? '0') || 0;
+}
+
+function videoVal(field: unknown): number {
+  const arr = field as ActionData[] | undefined;
+  return parseFloat(arr?.find((a) => a.action_type === 'video_view')?.value ?? '0') || 0;
 }
 
 function extractInstalls(actions: ActionData[] | undefined): number {
@@ -119,7 +125,7 @@ export async function GET(request: Request) {
 
       if (!campaigns.length) {
         const empty = computeTotals([]);
-        return { daily: [], campaigns: [], totals: empty, prevTotals: null, qualifiedInstallEvent: QUALIFIED_INSTALL_EVENT, breakdown: [] };
+        return { daily: [], campaigns: [], totals: empty, prevTotals: null, qualifiedInstallEvent: QUALIFIED_INSTALL_EVENT, breakdown: [], videoMetrics: [] };
       }
 
       const detectCampOs = (c: { targeting?: { user_os?: string[] }; name: string }): string => {
@@ -252,6 +258,41 @@ export async function GET(request: Request) {
         }))
         .sort((a, b) => b.spend - a.spend);
 
+      // 5. Aggregate video metrics per campaign from raw insight rows
+      const videoAgg = new Map<string, { plays: number; weightedTime: number; p25: number; p50: number; p75: number; p100: number }>();
+      for (const row of currentRaw) {
+        const campaignId = row.campaign_id as string;
+        if (!appCampIds.has(campaignId)) continue;
+        const plays   = videoVal(row.video_play_actions);
+        const avgTime = videoVal(row.video_avg_time_watched_actions);
+        const p25     = videoVal(row.video_p25_watched_actions);
+        const p50     = videoVal(row.video_p50_watched_actions);
+        const p75     = videoVal(row.video_p75_watched_actions);
+        const p100    = videoVal(row.video_p100_watched_actions);
+        if (!plays) continue;
+        const e = videoAgg.get(campaignId);
+        if (!e) {
+          videoAgg.set(campaignId, { plays, weightedTime: avgTime * plays, p25, p50, p75, p100 });
+        } else {
+          e.plays += plays; e.weightedTime += avgTime * plays;
+          e.p25 += p25; e.p50 += p50; e.p75 += p75; e.p100 += p100;
+        }
+      }
+      const videoMetrics: AppVideoMetrics[] = Array.from(videoAgg.entries())
+        .map(([id, v]) => ({
+          campaignId: id,
+          campaignName: campMeta.get(id)?.name ?? id,
+          os: campMeta.get(id)?.os ?? 'both',
+          videoPlays: v.plays,
+          avgTimeWatched: v.plays > 0 ? v.weightedTime / v.plays : 0,
+          p25Rate: v.plays > 0 ? v.p25 / v.plays : 0,
+          p50Rate: v.plays > 0 ? v.p50 / v.plays : 0,
+          p75Rate: v.plays > 0 ? v.p75 / v.plays : 0,
+          p100Rate: v.plays > 0 ? v.p100 / v.plays : 0,
+        }))
+        .filter((v) => v.videoPlays > 0)
+        .sort((a, b) => b.avgTimeWatched - a.avgTimeWatched);
+
       return {
         daily:     currentDaily,
         campaigns: campaignSummaries,
@@ -259,6 +300,7 @@ export async function GET(request: Request) {
         prevTotals: prevDaily.length > 0 ? computeTotals(prevDaily) : null,
         qualifiedInstallEvent: QUALIFIED_INSTALL_EVENT,
         breakdown,
+        videoMetrics,
       };
     });
 
