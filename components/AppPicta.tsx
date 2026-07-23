@@ -841,7 +841,7 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
                   <XAxis type="number" tickFormatter={(v) => `${v}s`} {...AXIS_COMMON} />
                   <YAxis dataKey="name" type="category" {...AXIS_COMMON} width={120} tick={{ ...AXIS_TICK, fontSize: 10 }} />
                   <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`${v.toFixed(1)}s`, 'Temps moyen'] : '—'} />
-                  <Bar dataKey="avgTime" radius={[0, 4, 4, 0]} label={{ position: 'right', fontSize: 10, formatter: (v: number) => `${v}s` }}>
+                  <Bar dataKey="avgTime" radius={[0, 4, 4, 0]} label={{ position: 'right', fontSize: 10, formatter: (v: unknown) => typeof v === 'number' ? `${v}s` : '' }}>
                     {avgTimeData.map((entry, i) => (
                       <Cell key={i} fill={entry.os === 'ios' ? '#3b82f6' : '#10b981'} />
                     ))}
