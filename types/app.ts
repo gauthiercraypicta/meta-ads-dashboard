@@ -57,11 +57,24 @@ export interface AppDeviceRow {
   qualifiedInstalls: number;
 }
 
+export interface AppVideoMetrics {
+  campaignId: string;
+  campaignName: string;
+  os: string;
+  videoPlays: number;
+  avgTimeWatched: number; // secondes
+  p25Rate: number; // fraction 0-1
+  p50Rate: number;
+  p75Rate: number;
+  p100Rate: number;
+}
+
 export interface AppInstallsResponse {
   daily: AppDailyRow[];
   campaigns: AppCampaignSummary[];
   totals: AppTotals;
   prevTotals: AppTotals | null;
   qualifiedInstallEvent: string;
-  breakdown: AppDeviceRow[]; // par impression_device — sert au filtre iOS/Android
+  breakdown: AppDeviceRow[];
+  videoMetrics: AppVideoMetrics[];
 }

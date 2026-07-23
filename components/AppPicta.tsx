@@ -3,17 +3,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import {
-  LineChart, Line, BarChart, Bar,
+  LineChart, Line, BarChart, Bar, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ReferenceLine, ResponsiveContainer,
 } from 'recharts';
-import type { AppInstallsResponse, AppDailyRow, AppCampaignSummary, AppTotals } from '@/types/app';
+import type { AppInstallsResponse, AppDailyRow, AppCampaignSummary, AppTotals, AppVideoMetrics } from '@/types/app';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const QUALITY_TARGET = 0.30;
 const IOS_LAG_DAYS   = 3;
 const IOS_DEVICES    = new Set(['mobile_phone_ios', 'ipad', 'iphone']);
+const CAMP_COLORS    = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#06b6d4', '#84cc16', '#f43f5e'];
 
 // ─── Mock data (dev offline fallback) ────────────────────────────────────────
 
@@ -68,7 +69,12 @@ function generateMockData(): AppInstallsResponse {
     installs: r.installs, qualifiedInstalls: r.qualifiedInstalls,
   }));
 
-  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)', breakdown };
+  const videoMetrics: AppVideoMetrics[] = [
+    { campaignId: 'c1', campaignName: camps[0].name, os: 'ios',     videoPlays: 28500, avgTimeWatched: 10.5, p25Rate: 0.78, p50Rate: 0.58, p75Rate: 0.38, p100Rate: 0.21 },
+    { campaignId: 'c2', campaignName: camps[1].name, os: 'android', videoPlays: 19200, avgTimeWatched: 7.8,  p25Rate: 0.72, p50Rate: 0.51, p75Rate: 0.31, p100Rate: 0.16 },
+  ];
+
+  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)', breakdown, videoMetrics };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -483,9 +489,10 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
     if (osFilter === 'all') return data;
     const isIos     = osFilter === 'ios';
     const campaigns = data.campaigns.filter((c) => isIos ? (c.os === 'ios' || c.os === 'both') : (c.os === 'android' || c.os === 'both'));
-    const campIds   = new Set(campaigns.map((c) => c.id));
-    const daily     = data.daily.filter((r) => campIds.has(r.campaignId));
-    return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null };
+    const campIds     = new Set(campaigns.map((c) => c.id));
+    const daily       = data.daily.filter((r) => campIds.has(r.campaignId));
+    const videoMetrics = (data.videoMetrics ?? []).filter((v) => campIds.has(v.campaignId));
+    return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null, videoMetrics };
   }, [data, osFilter]);
 
   const dailyPoints = useMemo<DailyPoint[]>(() => {
@@ -534,6 +541,23 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
     if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
     else { setSortKey(key); setSortDir('desc'); }
   };
+
+  const filteredVideoMetrics = active.videoMetrics ?? [];
+
+  const avgTimeData = [...filteredVideoMetrics]
+    .sort((a, b) => b.avgTimeWatched - a.avgTimeWatched)
+    .map((v) => ({
+      name: v.campaignName.replace(/picta\s*[—\-]\s*/i, '').replace(/app\s+install\s*/i, '').trim().slice(0, 24),
+      avgTime: +v.avgTimeWatched.toFixed(1),
+      os: v.os,
+    }));
+
+  const retentionData = filteredVideoMetrics.length > 0 ? [
+    { p: '25%',  ...Object.fromEntries(filteredVideoMetrics.map((v) => [v.campaignId, +(v.p25Rate  * 100).toFixed(1)])) },
+    { p: '50%',  ...Object.fromEntries(filteredVideoMetrics.map((v) => [v.campaignId, +(v.p50Rate  * 100).toFixed(1)])) },
+    { p: '75%',  ...Object.fromEntries(filteredVideoMetrics.map((v) => [v.campaignId, +(v.p75Rate  * 100).toFixed(1)])) },
+    { p: '100%', ...Object.fromEntries(filteredVideoMetrics.map((v) => [v.campaignId, +(v.p100Rate * 100).toFixed(1)])) },
+  ] : [];
 
   const kpis = [
     { label: 'Dépenses',       value: totals.spend,             prev: prevTotals?.spend,             display: `$${totals.spend.toFixed(0)}`,       lowerIsBetter: true  },
@@ -799,6 +823,59 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
           onSort={handleSort}
         />
       </ChartCard>
+
+      {/* 11. Video metrics */}
+      {filteredVideoMetrics.length > 0 && (
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900">Vidéo — Temps & taux de complétion</h3>
+            <span className="text-xs text-gray-400 font-mono bg-gray-100 rounded-full px-2 py-0.5">{filteredVideoMetrics.length} campagnes</span>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* Avg time watched */}
+            <ChartCard title="Temps moyen de visionnage" subtitle="Secondes regardées en moyenne par vue · 🍎 bleu, 🤖 vert">
+              <ResponsiveContainer width="100%" height={Math.max(180, filteredVideoMetrics.length * 44)}>
+                <BarChart data={avgTimeData} layout="vertical" margin={{ top: 4, right: 48, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
+                  <XAxis type="number" tickFormatter={(v) => `${v}s`} {...AXIS_COMMON} />
+                  <YAxis dataKey="name" type="category" {...AXIS_COMMON} width={120} tick={{ ...AXIS_TICK, fontSize: 10 }} />
+                  <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`${v.toFixed(1)}s`, 'Temps moyen'] : '—'} />
+                  <Bar dataKey="avgTime" radius={[0, 4, 4, 0]} label={{ position: 'right', fontSize: 10, formatter: (v: number) => `${v}s` }}>
+                    {avgTimeData.map((entry, i) => (
+                      <Cell key={i} fill={entry.os === 'ios' ? '#3b82f6' : '#10b981'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            {/* Retention curve */}
+            <ChartCard title="Courbe de rétention vidéo" subtitle="% des vues ayant atteint chaque seuil de complétion">
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={retentionData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                  <XAxis dataKey="p" {...AXIS_COMMON} />
+                  <YAxis tickFormatter={(v) => `${v}%`} {...AXIS_COMMON} width={40} domain={[0, 100]} />
+                  <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`${v.toFixed(1)}%`, ''] : '—'} />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  {filteredVideoMetrics.map((v, i) => (
+                    <Line
+                      key={v.campaignId}
+                      type="monotone"
+                      dataKey={v.campaignId}
+                      name={v.campaignName.replace(/picta\s*[—\-]\s*/i, '').replace(/app\s+install\s*/i, '').trim().slice(0, 20)}
+                      stroke={CAMP_COLORS[i % CAMP_COLORS.length]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          </div>
+        </div>
+      )}
     </>}
     </div>
   );
