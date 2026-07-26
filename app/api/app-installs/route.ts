@@ -8,9 +8,18 @@ const BASE_URL    = `https://graph.facebook.com/${API_VERSION}`;
 const TTL         = 5 * 60 * 1000;
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-// Set QUALIFIED_INSTALL_EVENT in Vercel env vars (e.g. "app_custom_event.fb_mobile_activate_app")
+// Nouvelle valeur par défaut : fb_mobile_install_engagement (standard Meta SDK).
+// Mettre à jour la variable Vercel QUALIFIED_INSTALL_EVENT en conséquence.
 const QUALIFIED_INSTALL_EVENT =
-  process.env.QUALIFIED_INSTALL_EVENT ?? 'app_custom_event.fb_mobile_activate_app';
+  process.env.QUALIFIED_INSTALL_EVENT ?? 'fb_mobile_install_engagement';
+
+// Ordre de priorité pour l'extraction des installs qualifiées.
+// On prend le premier type qui retourne une valeur non nulle (évite le double-comptage).
+const QI_PRIORITY: string[] = [
+  'fb_mobile_install_engagement',
+  QUALIFIED_INSTALL_EVENT,
+  'app_custom_event.fb_mobile_activate_app',
+].filter((v, i, arr) => arr.indexOf(v) === i); // déduplique
 
 const APP_OBJECTIVES = ['OUTCOME_APP_PROMOTION', 'APP_INSTALLS'];
 
@@ -52,6 +61,14 @@ function videoVal(field: unknown): number {
 
 function extractInstalls(actions: ActionData[] | undefined): number {
   return actionVal(actions, 'mobile_app_install') || actionVal(actions, 'omni_app_install');
+}
+
+function extractQualifiedInstalls(actions: ActionData[] | undefined): number {
+  for (const type of QI_PRIORITY) {
+    const val = actionVal(actions, type);
+    if (val > 0) return val;
+  }
+  return 0;
 }
 
 async function fetchAllPages<T>(url: string, maxPages = 10): Promise<T[]> {
@@ -193,10 +210,11 @@ export async function GET(request: Request) {
         ) || 0;
         const freq     = parseFloat(row.frequency as string || '0') || 0;
         const installs = extractInstalls(actions);
-        const qi       = actionVal(actions, QUALIFIED_INSTALL_EVENT);
+        const qi       = extractQualifiedInstalls(actions);
 
+        const qiDebug = QI_PRIORITY.map((t) => `${t}=${actionVal(actions, t)}`).join(' | ');
         console.log(
-          `[app-installs] ${row.date_start} ${row.campaign_name}: spend=${spend.toFixed(2)} installs=${installs} qi=${qi}`,
+          `[app-installs] ${row.date_start} ${row.campaign_name}: spend=${spend.toFixed(2)} installs=${installs} qi=${qi} [${qiDebug}]`,
         );
 
         return {
@@ -220,7 +238,7 @@ export async function GET(request: Request) {
         const impr     = parseInt(row.impressions as string || '0', 10) || 0;
         const clicks   = parseInt(row.clicks as string || '0', 10) || 0;
         const installs = extractInstalls(actions);
-        const qi       = actionVal(actions, QUALIFIED_INSTALL_EVENT);
+        const qi       = extractQualifiedInstalls(actions);
         return {
           date:         row.date_start as string,
           campaignId,
