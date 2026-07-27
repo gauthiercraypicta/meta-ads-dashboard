@@ -419,8 +419,23 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
 
 // ─── Performance tracking table ───────────────────────────────────────────────
 
-function weekOfMonth(dateStr: string): number {
-  return Math.ceil(new Date(dateStr + 'T12:00:00').getDate() / 7);
+interface ISOWeekMeta { key: string; weekNum: number; monday: Date; sunday: Date; monthKey: string }
+
+function getISOWeekMeta(dateStr: string): ISOWeekMeta {
+  const d = new Date(dateStr + 'T12:00:00');
+  const dow = d.getDay() || 7; // Mon=1 … Sun=7
+  const monday  = new Date(d); monday.setDate(d.getDate() - (dow - 1));
+  const sunday  = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  const thursday = new Date(monday); thursday.setDate(monday.getDate() + 3); // ISO anchor
+  const yearStart = new Date(thursday.getFullYear(), 0, 1);
+  const weekNum = Math.ceil(((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  const key = `${thursday.getFullYear()}-W${weekNum.toString().padStart(2, '0')}`;
+  const monthKey = `${thursday.getFullYear()}-${(thursday.getMonth() + 1).toString().padStart(2, '0')}`;
+  return { key, weekNum, monday, sunday, monthKey };
+}
+
+function fmtShortDate(d: Date): string {
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 }
 
 function aggregatePerfRows(rows: AppDailyRow[]) {
@@ -445,19 +460,37 @@ function GapBadge({ gap }: { gap: number }) {
 }
 
 function PerfTable({ daily }: { daily: AppDailyRow[] }) {
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const now            = new Date();
+  const currentWeekKey = getISOWeekMeta(now.toISOString().slice(0, 10)).key;
+  const currentMonthKey = now.toISOString().slice(0, 7);
 
-  const byMonth = new Map<string, AppDailyRow[]>();
+  // Group by ISO week
+  const weekMap = new Map<string, { rows: AppDailyRow[]; meta: ISOWeekMeta }>();
+  for (const row of daily) {
+    const meta = getISOWeekMeta(row.date);
+    if (!weekMap.has(meta.key)) weekMap.set(meta.key, { rows: [], meta });
+    weekMap.get(meta.key)!.rows.push(row);
+  }
+  const weeks = Array.from(weekMap.values()).sort((a, b) => a.meta.key.localeCompare(b.meta.key));
+  if (weeks.length === 0) return null;
+
+  // Calendar-month totals (for the monthly total rows)
+  const monthMap = new Map<string, AppDailyRow[]>();
   for (const row of daily) {
     const m = row.date.slice(0, 7);
-    if (!byMonth.has(m)) byMonth.set(m, []);
-    byMonth.get(m)!.push(row);
+    if (!monthMap.has(m)) monthMap.set(m, []);
+    monthMap.get(m)!.push(row);
   }
-  const months = Array.from(byMonth.keys()).sort();
-  if (months.length === 0) return null;
+
+  // Month order (by ISO-Thursday attribution of each week)
+  const monthOrder: string[] = [];
+  const seenMonths = new Set<string>();
+  for (const w of weeks) {
+    if (!seenMonths.has(w.meta.monthKey)) { seenMonths.add(w.meta.monthKey); monthOrder.push(w.meta.monthKey); }
+  }
 
   return (
-    <ChartCard title="Suivi des performances" subtitle="Réel vs objectifs mensuels · modifiez MONTHLY_TARGETS dans AppPicta.tsx pour ajuster">
+    <ChartCard title="Suivi des performances" subtitle="Réel vs objectifs — semaines ISO lun→dim · totaux par mois calendaire">
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-collapse">
           <thead>
@@ -478,79 +511,60 @@ function PerfTable({ daily }: { daily: AppDailyRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {months.map((month) => {
-              const rows   = byMonth.get(month)!;
-              const agg    = aggregatePerfRows(rows);
-              const target = MONTHLY_TARGETS[month] ?? null;
-              const gap    = target ? agg.qi - target.realisticQD : null;
-              const isCurr = month === currentMonth;
+            {monthOrder.flatMap((monthKey) => {
+              const monthWeeks = weeks.filter((w) => w.meta.monthKey === monthKey);
+              const monthRows  = monthMap.get(monthKey) ?? [];
+              const monthAgg   = aggregatePerfRows(monthRows);
+              const target     = MONTHLY_TARGETS[monthKey] ?? null;
+              const gap        = target ? monthAgg.qi - target.realisticQD : null;
+              const isCurrMo   = monthKey === currentMonthKey;
 
-              if (isCurr) {
-                const byWeek = new Map<number, AppDailyRow[]>();
-                for (const row of rows) {
-                  const wk = weekOfMonth(row.date);
-                  if (!byWeek.has(wk)) byWeek.set(wk, []);
-                  byWeek.get(wk)!.push(row);
-                }
-                const weeks = Array.from(byWeek.keys()).sort((a, b) => a - b);
+              return [
+                // ── Month header ──────────────────────────────────────────
+                <tr key={`${monthKey}-hdr`} className={`border-b ${isCurrMo ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-gray-200'}`}>
+                  <td colSpan={9} className={`px-3 py-1.5 font-semibold ${isCurrMo ? 'text-blue-800' : 'text-gray-600'}`}>
+                    <span className="flex items-center gap-2">
+                      {fmtMonthLabel(monthKey)}
+                      {isCurrMo && <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700">En cours</span>}
+                    </span>
+                  </td>
+                </tr>,
 
-                return (
-                  <Fragment key={month}>
-                    {/* Current month header */}
-                    <tr className="bg-blue-50 border-b border-blue-100">
-                      <td colSpan={9} className="px-3 py-2 font-semibold text-blue-800 flex items-center gap-2">
-                        <span>{fmtMonthLabel(month)}</span>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 ml-1">En cours</span>
+                // ── ISO week rows ─────────────────────────────────────────
+                ...monthWeeks.map(({ rows: wkRows, meta }) => {
+                  const agg      = aggregatePerfRows(wkRows);
+                  const isCurrWk = meta.key === currentWeekKey;
+                  const label    = `S${meta.weekNum} · ${fmtShortDate(meta.monday)} → ${fmtShortDate(meta.sunday)}`;
+                  return (
+                    <tr key={meta.key} className={`border-b text-gray-700 ${isCurrWk ? 'bg-blue-50/40 border-blue-100' : 'border-gray-50 hover:bg-gray-50'}`}>
+                      <td className="px-3 py-2 pl-6 border-r border-gray-100 whitespace-nowrap font-mono text-[11px] text-gray-500">
+                        {label}
+                        {isCurrWk && <span className="ml-2 inline-flex px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-blue-100 text-blue-600">En cours</span>}
                       </td>
+                      <td className="px-3 py-2 text-right font-mono">{fmtNum(agg.installs)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{agg.cpi > 0 ? fmtMoney(agg.cpi) : '—'}</td>
+                      <td className="px-3 py-2 text-right font-mono">{fmtNum(agg.qi)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{agg.cpqi > 0 ? fmtMoney(agg.cpqi) : '—'}</td>
+                      <td className="px-3 py-2 text-right text-gray-300 border-l border-gray-100" colSpan={4}>—</td>
                     </tr>
-                    {/* Weekly sub-rows */}
-                    {weeks.map((wk) => {
-                      const wkAgg = aggregatePerfRows(byWeek.get(wk)!);
-                      return (
-                        <tr key={`${month}-w${wk}`} className="bg-blue-50/30 border-b border-blue-50 text-gray-600 hover:bg-blue-50/60">
-                          <td className="px-3 py-2 pl-8 text-gray-500 border-r border-gray-100">Semaine {wk}</td>
-                          <td className="px-3 py-2 text-right font-mono">{fmtNum(wkAgg.installs)}</td>
-                          <td className="px-3 py-2 text-right font-mono">{wkAgg.cpi > 0 ? fmtMoney(wkAgg.cpi) : '—'}</td>
-                          <td className="px-3 py-2 text-right font-mono">{fmtNum(wkAgg.qi)}</td>
-                          <td className="px-3 py-2 text-right font-mono">{wkAgg.cpqi > 0 ? fmtMoney(wkAgg.cpqi) : '—'}</td>
-                          <td className="px-3 py-2 text-right text-gray-300 border-l border-gray-100" colSpan={4}>—</td>
-                        </tr>
-                      );
-                    })}
-                    {/* MTD summary */}
-                    <tr className="bg-blue-100/60 border-b border-blue-200 font-semibold text-blue-900">
-                      <td className="px-3 py-2.5 pl-8 border-r border-gray-100">MTD total</td>
-                      <td className="px-3 py-2.5 text-right font-mono">{fmtNum(agg.installs)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono">{agg.cpi > 0 ? fmtMoney(agg.cpi) : '—'}</td>
-                      <td className="px-3 py-2.5 text-right font-mono">{fmtNum(agg.qi)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono">{agg.cpqi > 0 ? fmtMoney(agg.cpqi) : '—'}</td>
-                      <td className="px-3 py-2.5 text-right font-mono border-l border-gray-200">{target ? `$${target.cpqiTarget}` : '—'}</td>
-                      <td className="px-3 py-2.5 text-right font-mono">{target ? fmtNum(target.realisticQD) : '—'}</td>
-                      <td className="px-3 py-2.5 text-right font-mono">{target ? fmtNum(target.optimisticQD) : '—'}</td>
-                      <td className="px-3 py-2.5 text-right border-l border-gray-200">
-                        {gap !== null ? <GapBadge gap={gap} /> : '—'}
-                      </td>
-                    </tr>
-                  </Fragment>
-                );
-              }
+                  );
+                }),
 
-              // Past month — single row
-              return (
-                <tr key={month} className="border-b border-gray-100 hover:bg-gray-50 text-gray-700">
-                  <td className="px-3 py-2.5 font-medium border-r border-gray-100">{fmtMonthLabel(month)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(agg.installs)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{agg.cpi > 0 ? fmtMoney(agg.cpi) : '—'}</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(agg.qi)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono">{agg.cpqi > 0 ? fmtMoney(agg.cpqi) : '—'}</td>
-                  <td className="px-3 py-2.5 text-right font-mono border-l border-gray-100">{target ? `$${target.cpqiTarget}` : '—'}</td>
+                // ── Monthly total row ─────────────────────────────────────
+                <tr key={`${monthKey}-tot`} className={`border-b font-semibold ${isCurrMo ? 'bg-blue-100/50 border-blue-200 text-blue-900' : 'bg-gray-100/80 border-gray-200 text-gray-800'}`}>
+                  <td className="px-3 py-2.5 pl-6 border-r border-gray-200 whitespace-nowrap">
+                    {isCurrMo ? 'MTD total' : `Total ${fmtMonthLabel(monthKey)}`}
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(monthAgg.installs)}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{monthAgg.cpi > 0 ? fmtMoney(monthAgg.cpi) : '—'}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(monthAgg.qi)}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{monthAgg.cpqi > 0 ? fmtMoney(monthAgg.cpqi) : '—'}</td>
+                  <td className="px-3 py-2.5 text-right font-mono border-l border-gray-200">{target ? `$${target.cpqiTarget}` : '—'}</td>
                   <td className="px-3 py-2.5 text-right font-mono">{target ? fmtNum(target.realisticQD) : '—'}</td>
                   <td className="px-3 py-2.5 text-right font-mono">{target ? fmtNum(target.optimisticQD) : '—'}</td>
-                  <td className="px-3 py-2.5 text-right border-l border-gray-100">
-                    {gap !== null ? <GapBadge gap={gap} /> : '—'}
-                  </td>
-                </tr>
-              );
+                  <td className="px-3 py-2.5 text-right border-l border-gray-200">{gap !== null ? <GapBadge gap={gap} /> : '—'}</td>
+                </tr>,
+              ];
             })}
           </tbody>
         </table>
