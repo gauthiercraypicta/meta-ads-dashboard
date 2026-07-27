@@ -1,19 +1,28 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import type { ReactNode } from 'react';
 import {
-  LineChart, Line, BarChart, Bar,
+  LineChart, Line, BarChart, Bar, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ReferenceLine, ResponsiveContainer,
 } from 'recharts';
-import type { AppInstallsResponse, AppDailyRow, AppCampaignSummary, AppTotals } from '@/types/app';
+import type { AppInstallsResponse, AppDailyRow, AppCampaignSummary, AppTotals, AppVideoMetrics } from '@/types/app';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const QUALITY_TARGET = 0.30;
 const IOS_LAG_DAYS   = 3;
 const IOS_DEVICES    = new Set(['mobile_phone_ios', 'ipad', 'iphone']);
+const CAMP_COLORS    = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#06b6d4', '#84cc16', '#f43f5e'];
+
+// ─── Monthly performance targets ──────────────────────────────────────────────
+
+interface MonthTarget { cpqiTarget: number; realisticQD: number; optimisticQD: number }
+const MONTHLY_TARGETS: Record<string, MonthTarget> = {
+  '2026-06': { cpqiTarget: 30, realisticQD: 200, optimisticQD: 500 },
+  '2026-07': { cpqiTarget: 22, realisticQD: 282, optimisticQD: 750 },
+};
 
 // ─── Mock data (dev offline fallback) ────────────────────────────────────────
 
@@ -68,7 +77,12 @@ function generateMockData(): AppInstallsResponse {
     installs: r.installs, qualifiedInstalls: r.qualifiedInstalls,
   }));
 
-  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)', breakdown };
+  const videoMetrics: AppVideoMetrics[] = [
+    { campaignId: 'c1', campaignName: camps[0].name, os: 'ios',     videoPlays: 28500, avgTimeWatched: 10.5, p25Rate: 0.78, p50Rate: 0.58, p75Rate: 0.38, p100Rate: 0.21 },
+    { campaignId: 'c2', campaignName: camps[1].name, os: 'android', videoPlays: 19200, avgTimeWatched: 7.8,  p25Rate: 0.72, p50Rate: 0.51, p75Rate: 0.31, p100Rate: 0.16 },
+  ];
+
+  return { daily, campaigns, totals, prevTotals, qualifiedInstallEvent: 'app_custom_event.fb_mobile_activate_app (mock)', breakdown, videoMetrics };
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -381,11 +395,16 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
           {campaigns.map((camp, i) => (
             <tr key={camp.id} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
               {cols.map((c) => (
-                <td key={c.key} className={`px-3 py-2.5 font-mono ${c.key === 'name' ? 'font-sans text-gray-800 font-medium max-w-[200px] truncate' : 'text-gray-700'}`}>
+                <td key={c.key} className={`px-3 py-2.5 font-mono ${c.key === 'name' ? 'font-sans text-gray-800 font-medium max-w-[220px]' : 'text-gray-700'}`}>
                   {c.key === 'status' ? (
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${camp.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                       {camp.status === 'ACTIVE' && <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1" />}
                       {camp.status}
+                    </span>
+                  ) : c.key === 'name' ? (
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="flex-shrink-0 text-sm">{camp.os === 'ios' ? '🍎' : camp.os === 'android' ? '🤖' : '🍎🤖'}</span>
+                      <span className="truncate">{camp.name}</span>
                     </span>
                   ) : c.fmt(camp)}
                 </td>
@@ -395,6 +414,148 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ─── Performance tracking table ───────────────────────────────────────────────
+
+function weekOfMonth(dateStr: string): number {
+  return Math.ceil(new Date(dateStr + 'T12:00:00').getDate() / 7);
+}
+
+function aggregatePerfRows(rows: AppDailyRow[]) {
+  const t = rows.reduce(
+    (acc, r) => ({ spend: acc.spend + r.spend, installs: acc.installs + r.installs, qi: acc.qi + r.qualifiedInstalls }),
+    { spend: 0, installs: 0, qi: 0 },
+  );
+  return { ...t, cpi: t.installs > 0 ? t.spend / t.installs : 0, cpqi: t.qi > 0 ? t.spend / t.qi : 0 };
+}
+
+function fmtMonthLabel(m: string): string {
+  return new Date(m + '-01T12:00:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+}
+
+function GapBadge({ gap }: { gap: number }) {
+  const positive = gap >= 0;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${positive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+      {positive ? '+' : ''}{Math.round(gap)}
+    </span>
+  );
+}
+
+function PerfTable({ daily }: { daily: AppDailyRow[] }) {
+  const currentMonth = new Date().toISOString().slice(0, 7);
+
+  const byMonth = new Map<string, AppDailyRow[]>();
+  for (const row of daily) {
+    const m = row.date.slice(0, 7);
+    if (!byMonth.has(m)) byMonth.set(m, []);
+    byMonth.get(m)!.push(row);
+  }
+  const months = Array.from(byMonth.keys()).sort();
+  if (months.length === 0) return null;
+
+  return (
+    <ChartCard title="Suivi des performances" subtitle="Réel vs objectifs mensuels · modifiez MONTHLY_TARGETS dans AppPicta.tsx pour ajuster">
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100 text-gray-500">
+              <th rowSpan={2} className="px-3 py-2 text-left font-semibold text-gray-700 border-r border-gray-100 align-bottom">Période</th>
+              <th colSpan={4} className="px-3 py-2 text-center font-semibold text-blue-600 border-b border-gray-100">Données réelles</th>
+              <th colSpan={3} className="px-3 py-2 text-center font-semibold text-purple-600 border-b border-gray-100 border-l border-gray-100">Objectifs</th>
+              <th rowSpan={2} className="px-3 py-2 text-right font-semibold text-gray-700 border-l border-gray-100 align-bottom whitespace-nowrap">Écart QD</th>
+            </tr>
+            <tr className="bg-gray-50 border-b border-gray-200 text-gray-400 font-medium">
+              <th className="px-3 py-2 text-right whitespace-nowrap">DL globaux</th>
+              <th className="px-3 py-2 text-right whitespace-nowrap">CPI</th>
+              <th className="px-3 py-2 text-right whitespace-nowrap">DL qualifiés</th>
+              <th className="px-3 py-2 text-right whitespace-nowrap">CPQI réel</th>
+              <th className="px-3 py-2 text-right whitespace-nowrap border-l border-gray-100">Cible CPQI</th>
+              <th className="px-3 py-2 text-right whitespace-nowrap">Obj. réaliste</th>
+              <th className="px-3 py-2 text-right whitespace-nowrap">Obj. optimiste</th>
+            </tr>
+          </thead>
+          <tbody>
+            {months.map((month) => {
+              const rows   = byMonth.get(month)!;
+              const agg    = aggregatePerfRows(rows);
+              const target = MONTHLY_TARGETS[month] ?? null;
+              const gap    = target ? agg.qi - target.realisticQD : null;
+              const isCurr = month === currentMonth;
+
+              if (isCurr) {
+                const byWeek = new Map<number, AppDailyRow[]>();
+                for (const row of rows) {
+                  const wk = weekOfMonth(row.date);
+                  if (!byWeek.has(wk)) byWeek.set(wk, []);
+                  byWeek.get(wk)!.push(row);
+                }
+                const weeks = Array.from(byWeek.keys()).sort((a, b) => a - b);
+
+                return (
+                  <Fragment key={month}>
+                    {/* Current month header */}
+                    <tr className="bg-blue-50 border-b border-blue-100">
+                      <td colSpan={9} className="px-3 py-2 font-semibold text-blue-800 flex items-center gap-2">
+                        <span>{fmtMonthLabel(month)}</span>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700 ml-1">En cours</span>
+                      </td>
+                    </tr>
+                    {/* Weekly sub-rows */}
+                    {weeks.map((wk) => {
+                      const wkAgg = aggregatePerfRows(byWeek.get(wk)!);
+                      return (
+                        <tr key={`${month}-w${wk}`} className="bg-blue-50/30 border-b border-blue-50 text-gray-600 hover:bg-blue-50/60">
+                          <td className="px-3 py-2 pl-8 text-gray-500 border-r border-gray-100">Semaine {wk}</td>
+                          <td className="px-3 py-2 text-right font-mono">{fmtNum(wkAgg.installs)}</td>
+                          <td className="px-3 py-2 text-right font-mono">{wkAgg.cpi > 0 ? fmtMoney(wkAgg.cpi) : '—'}</td>
+                          <td className="px-3 py-2 text-right font-mono">{fmtNum(wkAgg.qi)}</td>
+                          <td className="px-3 py-2 text-right font-mono">{wkAgg.cpqi > 0 ? fmtMoney(wkAgg.cpqi) : '—'}</td>
+                          <td className="px-3 py-2 text-right text-gray-300 border-l border-gray-100" colSpan={4}>—</td>
+                        </tr>
+                      );
+                    })}
+                    {/* MTD summary */}
+                    <tr className="bg-blue-100/60 border-b border-blue-200 font-semibold text-blue-900">
+                      <td className="px-3 py-2.5 pl-8 border-r border-gray-100">MTD total</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{fmtNum(agg.installs)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{agg.cpi > 0 ? fmtMoney(agg.cpi) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{fmtNum(agg.qi)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{agg.cpqi > 0 ? fmtMoney(agg.cpqi) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right font-mono border-l border-gray-200">{target ? `$${target.cpqiTarget}` : '—'}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{target ? fmtNum(target.realisticQD) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{target ? fmtNum(target.optimisticQD) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right border-l border-gray-200">
+                        {gap !== null ? <GapBadge gap={gap} /> : '—'}
+                      </td>
+                    </tr>
+                  </Fragment>
+                );
+              }
+
+              // Past month — single row
+              return (
+                <tr key={month} className="border-b border-gray-100 hover:bg-gray-50 text-gray-700">
+                  <td className="px-3 py-2.5 font-medium border-r border-gray-100">{fmtMonthLabel(month)}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(agg.installs)}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{agg.cpi > 0 ? fmtMoney(agg.cpi) : '—'}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{fmtNum(agg.qi)}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{agg.cpqi > 0 ? fmtMoney(agg.cpqi) : '—'}</td>
+                  <td className="px-3 py-2.5 text-right font-mono border-l border-gray-100">{target ? `$${target.cpqiTarget}` : '—'}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{target ? fmtNum(target.realisticQD) : '—'}</td>
+                  <td className="px-3 py-2.5 text-right font-mono">{target ? fmtNum(target.optimisticQD) : '—'}</td>
+                  <td className="px-3 py-2.5 text-right border-l border-gray-100">
+                    {gap !== null ? <GapBadge gap={gap} /> : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </ChartCard>
   );
 }
 
@@ -478,9 +639,10 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
     if (osFilter === 'all') return data;
     const isIos     = osFilter === 'ios';
     const campaigns = data.campaigns.filter((c) => isIos ? (c.os === 'ios' || c.os === 'both') : (c.os === 'android' || c.os === 'both'));
-    const campIds   = new Set(campaigns.map((c) => c.id));
-    const daily     = data.daily.filter((r) => campIds.has(r.campaignId));
-    return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null };
+    const campIds     = new Set(campaigns.map((c) => c.id));
+    const daily       = data.daily.filter((r) => campIds.has(r.campaignId));
+    const videoMetrics = (data.videoMetrics ?? []).filter((v) => campIds.has(v.campaignId));
+    return { ...data, campaigns, daily, totals: recomputeTotals(daily), prevTotals: null, videoMetrics };
   }, [data, osFilter]);
 
   const dailyPoints = useMemo<DailyPoint[]>(() => {
@@ -529,6 +691,23 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
     if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
     else { setSortKey(key); setSortDir('desc'); }
   };
+
+  const filteredVideoMetrics = active.videoMetrics ?? [];
+
+  const avgTimeData = [...filteredVideoMetrics]
+    .sort((a, b) => b.avgTimeWatched - a.avgTimeWatched)
+    .map((v) => ({
+      name: v.campaignName.replace(/picta\s*[—\-]\s*/i, '').replace(/app\s+install\s*/i, '').trim().slice(0, 24),
+      avgTime: +v.avgTimeWatched.toFixed(1),
+      os: v.os,
+    }));
+
+  const retentionData = filteredVideoMetrics.length > 0 ? [
+    { p: '25%',  ...Object.fromEntries(filteredVideoMetrics.map((v) => [v.campaignId, +(v.p25Rate  * 100).toFixed(1)])) },
+    { p: '50%',  ...Object.fromEntries(filteredVideoMetrics.map((v) => [v.campaignId, +(v.p50Rate  * 100).toFixed(1)])) },
+    { p: '75%',  ...Object.fromEntries(filteredVideoMetrics.map((v) => [v.campaignId, +(v.p75Rate  * 100).toFixed(1)])) },
+    { p: '100%', ...Object.fromEntries(filteredVideoMetrics.map((v) => [v.campaignId, +(v.p100Rate * 100).toFixed(1)])) },
+  ] : [];
 
   const kpis = [
     { label: 'Dépenses',       value: totals.spend,             prev: prevTotals?.spend,             display: `$${totals.spend.toFixed(0)}`,       lowerIsBetter: true  },
@@ -625,6 +804,9 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
           />
         ))}
       </div>
+
+      {/* 1b. Performance tracking table */}
+      <PerfTable daily={active.daily} />
 
       {/* 2 & 3. CPI vs CPQI | CPM */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -741,39 +923,45 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
         </span>
       </div>
 
-      {/* 9. Per-campaign CPI / CPQI charts */}
+      {/* 9. Per-campaign CPI / CPQI charts — split iOS | Android */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">CPI vs CPQI par campagne</h3>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {filteredData?.campaigns.map((camp) => {
-            const pts = granularity === 'week' ? toWeekly(perCampaignPoints.get(camp.id) ?? []) : (perCampaignPoints.get(camp.id) ?? []);
-            if (!pts.length) return null;
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">CPI vs CPQI par campagne</h3>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+          {(['ios', 'android'] as const).map((side) => {
+            const sideLabel  = side === 'ios' ? '🍎 iOS' : '🤖 Android';
+            const sideCamps  = (filteredData?.campaigns ?? []).filter((c) =>
+              side === 'ios' ? (c.os === 'ios' || c.os === 'both') : (c.os !== 'ios'),
+            );
             return (
-              <ChartCard
-                key={camp.id}
-                title={camp.name}
-                subtitle="Coût/install vs coût/download qualifié"
-              >
-                <ResponsiveContainer width="100%" height={220}>
-                  <LineChart data={pts} margin={{ top: 4, right: 52, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-                    <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
-                    <YAxis tickFormatter={(v) => `$${(v as number).toFixed(0)}`} {...AXIS_COMMON} width={46} />
-                    <Tooltip content={<MoneyTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Line
-                      type="monotone" dataKey="cpi" name="Coût / install ($)"
-                      stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }}
-                      label={makeLastLabel(pts.length, '#3b82f6')}
-                    />
-                    <Line
-                      type="monotone" dataKey="cpqi" name="Coût / download qualifié ($)"
-                      stroke="#ef4444" strokeWidth={2} dot={{ r: 3, fill: '#ef4444' }}
-                      label={makeLastLabel(pts.length, '#ef4444')}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ChartCard>
+              <div key={side} className="space-y-4">
+                <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+                  <span className="text-sm font-semibold text-gray-800">{sideLabel}</span>
+                  <span className="text-xs text-gray-400 font-mono bg-gray-100 rounded-full px-2 py-0.5">{sideCamps.length}</span>
+                </div>
+                {sideCamps.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-4 text-center">Aucune campagne {side === 'ios' ? 'iOS' : 'Android'}</p>
+                ) : sideCamps.map((camp) => {
+                  const pts = granularity === 'week'
+                    ? toWeekly(perCampaignPoints.get(camp.id) ?? [])
+                    : (perCampaignPoints.get(camp.id) ?? []);
+                  if (!pts.length) return null;
+                  return (
+                    <ChartCard key={camp.id} title={camp.name} subtitle="Coût/install vs coût/download qualifié">
+                      <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={pts} margin={{ top: 4, right: 52, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                          <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+                          <YAxis tickFormatter={(v) => `$${(v as number).toFixed(0)}`} {...AXIS_COMMON} width={46} />
+                          <Tooltip content={<MoneyTooltip />} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Line type="monotone" dataKey="cpi" name="Coût / install ($)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }} label={makeLastLabel(pts.length, '#3b82f6')} />
+                          <Line type="monotone" dataKey="cpqi" name="Coût / download qualifié ($)" stroke="#ef4444" strokeWidth={2} dot={{ r: 3, fill: '#ef4444' }} label={makeLastLabel(pts.length, '#ef4444')} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+                  );
+                })}
+              </div>
             );
           })}
         </div>
@@ -788,6 +976,59 @@ export default function AppPicta({ datePreset }: { datePreset: string }) {
           onSort={handleSort}
         />
       </ChartCard>
+
+      {/* 11. Video metrics */}
+      {filteredVideoMetrics.length > 0 && (
+        <div className="space-y-6">
+          <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900">Vidéo — Temps & taux de complétion</h3>
+            <span className="text-xs text-gray-400 font-mono bg-gray-100 rounded-full px-2 py-0.5">{filteredVideoMetrics.length} campagnes</span>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* Avg time watched */}
+            <ChartCard title="Temps moyen de visionnage" subtitle="Secondes regardées en moyenne par vue · 🍎 bleu, 🤖 vert">
+              <ResponsiveContainer width="100%" height={Math.max(180, filteredVideoMetrics.length * 44)}>
+                <BarChart data={avgTimeData} layout="vertical" margin={{ top: 4, right: 48, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
+                  <XAxis type="number" tickFormatter={(v) => `${v}s`} {...AXIS_COMMON} />
+                  <YAxis dataKey="name" type="category" {...AXIS_COMMON} width={120} tick={{ ...AXIS_TICK, fontSize: 10 }} />
+                  <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`${v.toFixed(1)}s`, 'Temps moyen'] : '—'} />
+                  <Bar dataKey="avgTime" radius={[0, 4, 4, 0]} label={{ position: 'right', fontSize: 10, formatter: (v: unknown) => typeof v === 'number' ? `${v}s` : '' }}>
+                    {avgTimeData.map((entry, i) => (
+                      <Cell key={i} fill={entry.os === 'ios' ? '#3b82f6' : '#10b981'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            {/* Retention curve */}
+            <ChartCard title="Courbe de rétention vidéo" subtitle="% des vues ayant atteint chaque seuil de complétion">
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={retentionData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                  <XAxis dataKey="p" {...AXIS_COMMON} />
+                  <YAxis tickFormatter={(v) => `${v}%`} {...AXIS_COMMON} width={40} domain={[0, 100]} />
+                  <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`${v.toFixed(1)}%`, ''] : '—'} />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  {filteredVideoMetrics.map((v, i) => (
+                    <Line
+                      key={v.campaignId}
+                      type="monotone"
+                      dataKey={v.campaignId}
+                      name={v.campaignName.replace(/picta\s*[—\-]\s*/i, '').replace(/app\s+install\s*/i, '').trim().slice(0, 20)}
+                      stroke={CAMP_COLORS[i % CAMP_COLORS.length]}
+                      strokeWidth={2}
+                      dot={{ r: 4 }}
+                    />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          </div>
+        </div>
+      )}
     </>}
     </div>
   );
