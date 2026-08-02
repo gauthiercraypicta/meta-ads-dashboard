@@ -69,13 +69,16 @@ async function fetchReport(
   for (const m of METRICS)    parts.push(`metrics[]=${encodeURIComponent(m)}`);
   parts.push('limit=50000');
 
-  const res = await fetch(`${REPORT_URL}?${parts.join('&')}`, {
-    headers: { Authorization: `Bearer ${API_TOKEN}` },
+  const url = `${REPORT_URL}?${parts.join('&')}`;
+  console.log('[Adjust] requesting:', url);
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Token token=${API_TOKEN}` },
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`Adjust Report API HTTP ${res.status}: ${body.slice(0, 400)}`);
+    throw new Error(`Adjust Report API HTTP ${res.status} | url=${url.slice(0, 300)} | body=${body.slice(0, 300)}`);
   }
 
   return res.json() as Promise<ReportResponse>;
