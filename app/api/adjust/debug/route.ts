@@ -14,25 +14,35 @@ export async function GET() {
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
   const app     = appTokens[0];
 
-  type C = { label: string; url: string; headers: Record<string, string> };
-  const candidates: C[] = [
-    // The correct base URL found via Airbyte docs
-    { label: 'dash RS/report date_period Bearer',     url: `${DASH_RS}/report?app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day&metrics=installs&limit=5`,   headers: { Authorization: `Bearer ${apiToken}` } },
-    { label: 'dash RS/report date_period Token',      url: `${DASH_RS}/report?app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day&metrics=installs&limit=5`,   headers: { Authorization: `Token token=${apiToken}` } },
-    { label: 'dash RS/filters_data (probe)',  url: `${DASH_RS}/filters_data?required_filters=event_metrics`,                                                                       headers: { Authorization: `Bearer ${apiToken}` } },
-    // CANARY: old kpis/v1 (doit toujours être 410)
-    { label: 'CANARY kpis/v1',                url: `https://api.adjust.com/kpis/v1/${app}?start_date=${weekAgo}&end_date=${today}&kpis=installs&grouping=day`,                    headers: { Authorization: `Token token=${apiToken}` } },
-  ];
+  // Fetch a small report with event_kpis to see the exact key format in rows
+  const url = `${DASH_RS}/report?app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day&metrics=installs,cost&event_kpis[]=citg8a&limit=3`;
 
-  const results = await Promise.all(candidates.map(async (c) => {
-    try {
-      const res  = await fetch(c.url, { headers: c.headers });
-      const body = await res.text().catch(() => '');
-      return { label: c.label, status: res.status, body: body.slice(0, 500) };
-    } catch (e) {
-      return { label: c.label, status: null, body: String(e).slice(0, 200) };
+  try {
+    const res  = await fetch(url, { headers: { Authorization: `Bearer ${apiToken}` } });
+    const body = await res.text().catch(() => '');
+
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(body); } catch { /* ignore */ }
+
+    // Extract first row to show exact keys
+    let sampleRow: unknown = null;
+    let rowKeys: string[] = [];
+    if (parsed && typeof parsed === 'object' && 'rows' in parsed) {
+      const rows = (parsed as { rows: unknown[] }).rows;
+      if (rows.length > 0) {
+        sampleRow = rows[0];
+        rowKeys = Object.keys(rows[0] as object);
+      }
     }
-  }));
 
-  return NextResponse.json({ today, app, results });
+    return NextResponse.json({
+      status: res.status,
+      url,
+      sampleRow,
+      rowKeys,
+      rawBody: body.slice(0, 1000),
+    });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
 }
