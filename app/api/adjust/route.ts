@@ -156,17 +156,32 @@ export async function GET(req: Request) {
         cpm: c.impressions > 0 ? (c.cost / c.impressions) * 1000 : 0,
       }));
 
-      const ct = curr.totals ?? {};
-      const totals = deriveTotals({
-        installs:    Number(ct.installs    ?? 0),
-        clicks:      Number(ct.clicks      ?? 0),
-        impressions: Number(ct.impressions ?? 0),
-        cost:        Number(ct.cost        ?? 0),
-      });
+      // Compute totals from rows (not curr.totals which is account-level, not per-app)
+      const sumRows = (rows: AdjustDailyRow[]) =>
+        rows.reduce((a, r) => ({
+          installs:    a.installs    + r.installs,
+          clicks:      a.clicks      + r.clicks,
+          impressions: a.impressions + r.impressions,
+          cost:        a.cost        + r.cost,
+        }), { installs: 0, clicks: 0, impressions: 0, cost: 0 });
 
-      const pt = prev.totals ?? {};
-      const prevTotals = Number(pt.installs ?? 0) > 0 || Number(pt.cost ?? 0) > 0
-        ? deriveTotals({ installs: Number(pt.installs ?? 0), clicks: Number(pt.clicks ?? 0), impressions: Number(pt.impressions ?? 0), cost: Number(pt.cost ?? 0) })
+      const totals = deriveTotals(sumRows(daily));
+
+      const prevDaily: AdjustDailyRow[] = (prev.rows ?? []).map((r) => ({
+        date:          r.day          ?? '',
+        appToken:      r.app_token    ?? '',
+        appName:       r.app          ?? r.app_token ?? '',
+        campaignToken: r.campaign_id_network ?? r.campaign ?? '',
+        campaignName:  r.campaign     ?? '',
+        installs:      Number(r.installs     ?? 0),
+        clicks:        Number(r.clicks       ?? 0),
+        impressions:   Number(r.impressions  ?? 0),
+        cost:          Number(r.cost         ?? 0),
+        sessions:      0,
+      }));
+      const prevSum = sumRows(prevDaily);
+      const prevTotals = prevSum.installs > 0 || prevSum.cost > 0
+        ? deriveTotals(prevSum)
         : null;
 
       const apps = [...new Map(daily.map((r) => [r.appToken, { token: r.appToken, name: r.appName }])).values()];
