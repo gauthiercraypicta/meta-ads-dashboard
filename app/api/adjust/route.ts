@@ -3,7 +3,7 @@ import { withCache } from '@/lib/apiCache';
 import type { AdjustDailyRow, AdjustCampaignSummary, AdjustTotals, AdjustResponse } from '@/types/adjust';
 
 const TTL        = 5 * 60 * 1000;
-const REPORT_URL = 'https://api.adjust.com/reports-service/report';
+const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/report';
 
 // Dimensions = axes de découpe ; Metrics = valeurs numériques
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
@@ -73,7 +73,7 @@ async function fetchReport(
   console.log('[Adjust] requesting:', url);
 
   const res = await fetch(url, {
-    headers: { Authorization: `Token token=${API_TOKEN}` },
+    headers: { Authorization: `Bearer ${API_TOKEN}` },
   });
 
   if (!res.ok) {
