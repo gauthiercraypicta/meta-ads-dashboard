@@ -9,6 +9,7 @@ export interface AdjustDailyRow {
   impressions: number;
   cost: number;
   sessions: number;
+  engagement: number;     // install_engagement event count
 }
 
 export interface AdjustCampaignSummary {
@@ -20,9 +21,11 @@ export interface AdjustCampaignSummary {
   impressions: number;
   cost: number;
   sessions: number;
+  engagement: number;
   cpi: number;
   ctr: number;
   cpm: number;
+  cpiEngagement: number;  // cost / engagement
 }
 
 export interface AdjustTotals {
@@ -31,9 +34,11 @@ export interface AdjustTotals {
   impressions: number;
   cost: number;
   sessions: number;
+  engagement: number;
   cpi: number;
   ctr: number;
   cpm: number;
+  cpiEngagement: number;
 }
 
 export interface AdjustResponse {
