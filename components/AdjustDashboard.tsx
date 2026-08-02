@@ -81,12 +81,15 @@ function aggregateByDate(rows: AdjustDailyRow[]): DailyPoint[] {
     if (!e) map.set(r.date, { installs: r.installs, clicks: r.clicks, impressions: r.impressions, cost: r.cost, sessions: r.sessions });
     else { e.installs += r.installs; e.clicks += r.clicks; e.impressions += r.impressions; e.cost += r.cost; e.sessions += r.sessions; }
   }
-  return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, t]) => ({
-    date, displayDate: fmtDate(date), ...t,
-    cpi: t.installs   > 0 ? t.cost / t.installs    : 0,
-    ctr: t.impressions > 0 ? t.clicks / t.impressions : 0,
-    cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0,
-  }));
+  return Array.from(map.entries())
+    .filter(([, t]) => t.installs > 0 || t.cost > 0 || t.clicks > 0 || t.impressions > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, t]) => ({
+      date, displayDate: fmtDate(date), ...t,
+      cpi: t.installs   > 0 ? t.cost / t.installs    : 0,
+      ctr: t.impressions > 0 ? t.clicks / t.impressions : 0,
+      cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0,
+    }));
 }
 
 function toWeekly(pts: DailyPoint[]): DailyPoint[] {
@@ -262,10 +265,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   const sortedCampaigns = useMemo(() => {
     if (!data) return [];
-    return [...data.campaigns].sort((a, b) => {
-      const diff = (a[sortKey] as number) - (b[sortKey] as number);
-      return sortDir === 'desc' ? -diff : diff;
-    });
+    return [...data.campaigns]
+      .filter((c) => c.installs > 0 || c.cost > 0 || c.clicks > 0 || c.impressions > 0)
+      .sort((a, b) => {
+        const diff = (a[sortKey] as number) - (b[sortKey] as number);
+        return sortDir === 'desc' ? -diff : diff;
+      });
   }, [data, sortKey, sortDir]);
 
   const campaignBars = useMemo(() => {
