@@ -69,7 +69,7 @@ async function fetchReport(
   parts.push(`date_period=${range.start_date}:${range.end_date}`);
   parts.push(`dimensions=${DIMENSIONS.join(',')}`);
   parts.push(`metrics=${METRICS.join(',')}`);
-  parts.push(`event_kpis[]=${ENGAGE_TOKEN}`);
+  parts.push(`event_kpis[]=${ENGAGE_TOKEN}.events`);
   parts.push('limit=50000');
 
   const url = `${REPORT_URL}?${parts.join('&')}`;
