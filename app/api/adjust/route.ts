@@ -120,7 +120,11 @@ export async function GET(req: Request) {
       ]);
 
       // Map flat rows → AdjustDailyRow (Adjust returns numbers as strings)
-      const daily: AdjustDailyRow[] = (curr.rows ?? []).map((r) => ({
+      // Also filter by app token in case the API ignores the app_token[] query param
+      const appTokenSet = new Set(APP_TOKENS);
+      const daily: AdjustDailyRow[] = (curr.rows ?? [])
+        .filter((r) => !r.app_token || appTokenSet.has(r.app_token))
+        .map((r) => ({
         date:          r.day          ?? '',
         appToken:      r.app_token    ?? '',
         appName:       r.app          ?? r.app_token ?? '',
@@ -167,7 +171,9 @@ export async function GET(req: Request) {
 
       const totals = deriveTotals(sumRows(daily));
 
-      const prevDaily: AdjustDailyRow[] = (prev.rows ?? []).map((r) => ({
+      const prevDaily: AdjustDailyRow[] = (prev.rows ?? [])
+        .filter((r) => !r.app_token || appTokenSet.has(r.app_token))
+        .map((r) => ({
         date:          r.day          ?? '',
         appToken:      r.app_token    ?? '',
         appName:       r.app          ?? r.app_token ?? '',
