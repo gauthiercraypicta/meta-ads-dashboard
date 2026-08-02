@@ -4,7 +4,7 @@ import type { AdjustDailyRow, AdjustCampaignSummary, AdjustTotals, AdjustRespons
 
 const TTL      = 5 * 60 * 1000;
 const BASE_URL = 'https://api.adjust.com/kpis/v1';
-const KPIS     = 'installs,clicks,impressions,cost,sessions';
+const KPIS     = 'installs,clicks,impressions,cost';
 
 // ─── Env config ───────────────────────────────────────────────────────────────
 // ADJUST_API_TOKEN  : User auth token (Account → API Credentials in Adjust Console)
@@ -75,8 +75,9 @@ async function fetchAppKpis(
     next: { revalidate: 0 },
   });
   if (!res.ok) {
-    console.error(`[Adjust] ${appToken} → HTTP ${res.status}`);
-    return null;
+    const body = await res.text().catch(() => '');
+    console.error(`[Adjust] ${appToken} → HTTP ${res.status} — ${body.slice(0, 300)}`);
+    throw new Error(`Adjust API ${res.status} pour app ${appToken}: ${body.slice(0, 200)}`);
   }
   const json: KpiResponse = await res.json();
   return json.result_set ?? null;
@@ -110,6 +111,7 @@ export async function GET(req: Request) {
 
   const cacheKey = `adjust:${datePreset}`;
 
+  try {
   const result = await withCache<AdjustResponse>(cacheKey, TTL, async () => {
     const range     = getRange(datePreset);
     const prevRange = getPrevRange(range);
@@ -132,7 +134,7 @@ export async function GET(req: Request) {
       const iCl = ki('clicks');
       const iIm = ki('impressions');
       const iCo = ki('cost');
-      const iSe = ki('sessions');
+      const iSe = ki('sessions'); // -1 si non disponible sur ce plan
 
       for (const day of result.dates) {
         for (const camp of day.campaigns) {
@@ -202,4 +204,9 @@ export async function GET(req: Request) {
   });
 
   return NextResponse.json(result);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Erreur Adjust inconnue';
+    console.error('[Adjust] route error:', msg);
+    return NextResponse.json({ error: msg }, { status: 502 });
+  }
 }
