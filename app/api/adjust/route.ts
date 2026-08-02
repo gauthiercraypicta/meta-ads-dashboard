@@ -61,16 +61,16 @@ async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
 ): Promise<ReportResponse> {
-  const params = new URLSearchParams();
-  for (const t of appTokens) params.append('app_token[]', t);
-  params.append('start_date', range.start_date);
-  params.append('end_date',   range.end_date);
-  for (const d of DIMENSIONS) params.append('dimensions[]', d);
-  for (const m of METRICS)    params.append('metrics[]', m);
-  params.append('limit', '50000');
+  // URLSearchParams percent-encodes [] → %5B%5D; Adjust requires literal brackets
+  const parts: string[] = [];
+  for (const t of appTokens)  parts.push(`app_token[]=${encodeURIComponent(t)}`);
+  parts.push(`start_date=${range.start_date}`, `end_date=${range.end_date}`);
+  for (const d of DIMENSIONS) parts.push(`dimensions[]=${encodeURIComponent(d)}`);
+  for (const m of METRICS)    parts.push(`metrics[]=${encodeURIComponent(m)}`);
+  parts.push('limit=50000');
 
-  const res = await fetch(`${REPORT_URL}?${params}`, {
-    headers: { Authorization: `Token token=${API_TOKEN}` },
+  const res = await fetch(`${REPORT_URL}?${parts.join('&')}`, {
+    headers: { Authorization: `Bearer ${API_TOKEN}` },
   });
 
   if (!res.ok) {
