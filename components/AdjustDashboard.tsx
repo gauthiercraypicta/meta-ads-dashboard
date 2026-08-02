@@ -52,9 +52,9 @@ function generateMock(): AdjustResponse {
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
-const fmtMoney = (v: number) => v === 0 ? '—' : `$${v.toFixed(2)}`;
-const fmtNum   = (v: number) => v === 0 ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`;
-const fmtPct   = (v: number) => `${(v * 100).toFixed(2)}%`;
+const fmtMoney = (v: number | null | undefined) => { const n = v ?? 0; return n === 0 ? '—' : `$${n.toFixed(2)}`; };
+const fmtNum   = (v: number | null | undefined) => { const n = v ?? 0; return n === 0 ? '—' : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${Math.round(n)}`; };
+const fmtPct   = (v: number | null | undefined) => `${((v ?? 0) * 100).toFixed(2)}%`;
 const fmtDate  = (s: string) => new Date(s + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 
 // ─── Chart helpers ────────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: { campaigns: Adj
   const cols: { key: SortKey; label: string; fmt: (c: AdjustCampaignSummary) => string }[] = [
     { key: 'name',        label: 'Campagne',     fmt: (c) => c.name },
     { key: 'appName',     label: 'App',          fmt: (c) => c.appName },
-    { key: 'cost',        label: 'Coût',         fmt: (c) => `$${c.cost.toFixed(0)}` },
+    { key: 'cost',        label: 'Coût',         fmt: (c) => `$${(c.cost ?? 0).toFixed(0)}` },
     { key: 'installs',    label: 'Installs',     fmt: (c) => fmtNum(c.installs) },
     { key: 'cpi',         label: 'CPI',          fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
     { key: 'clicks',      label: 'Clics',        fmt: (c) => fmtNum(c.clicks) },
@@ -272,8 +272,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     if (!data) return [];
     return data.campaigns.map((c) => ({
       name: c.name.replace(/UA_|Picta_?/gi, '').trim().slice(0, 18),
-      CPI:  +c.cpi.toFixed(2),
-      CPM:  +c.cpm.toFixed(2),
+      CPI:  +(c.cpi ?? 0).toFixed(2),
+      CPM:  +(c.cpm ?? 0).toFixed(2),
     }));
   }, [data]);
 
@@ -300,7 +300,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   };
 
   const kpis = [
-    { label: 'Coût total',   value: totals.cost,        prev: prevTotals?.cost,        display: `$${totals.cost.toFixed(0)}`,        lowerIsBetter: true  },
+    { label: 'Coût total',   value: totals.cost,        prev: prevTotals?.cost,        display: `$${(totals.cost ?? 0).toFixed(0)}`,        lowerIsBetter: true  },
     { label: 'Installs',     value: totals.installs,    prev: prevTotals?.installs,    display: fmtNum(totals.installs),             lowerIsBetter: false },
     { label: 'CPI',          value: totals.cpi,         prev: prevTotals?.cpi,         display: totals.cpi > 0 ? fmtMoney(totals.cpi) : '—', lowerIsBetter: true },
     { label: 'Clics',        value: totals.clicks,      prev: prevTotals?.clicks,      display: fmtNum(totals.clicks),               lowerIsBetter: false },
