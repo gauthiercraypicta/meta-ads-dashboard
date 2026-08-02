@@ -119,17 +119,17 @@ export async function GET(req: Request) {
         fetchReport(APP_TOKENS, prevRange),
       ]);
 
-      // Map flat rows → AdjustDailyRow
+      // Map flat rows → AdjustDailyRow (Adjust returns numbers as strings)
       const daily: AdjustDailyRow[] = (curr.rows ?? []).map((r) => ({
         date:          r.day          ?? '',
         appToken:      r.app_token    ?? '',
         appName:       r.app          ?? r.app_token ?? '',
         campaignToken: r.campaign_id_network ?? r.campaign ?? '',
         campaignName:  r.campaign     ?? '',
-        installs:      r.installs     ?? 0,
-        clicks:        r.clicks       ?? 0,
-        impressions:   r.impressions  ?? 0,
-        cost:          r.cost         ?? 0,
+        installs:      Number(r.installs     ?? 0),
+        clicks:        Number(r.clicks       ?? 0),
+        impressions:   Number(r.impressions  ?? 0),
+        cost:          Number(r.cost         ?? 0),
         sessions:      0,
       }));
 
@@ -158,15 +158,15 @@ export async function GET(req: Request) {
 
       const ct = curr.totals ?? {};
       const totals = deriveTotals({
-        installs:    ct.installs    ?? 0,
-        clicks:      ct.clicks      ?? 0,
-        impressions: ct.impressions ?? 0,
-        cost:        ct.cost        ?? 0,
+        installs:    Number(ct.installs    ?? 0),
+        clicks:      Number(ct.clicks      ?? 0),
+        impressions: Number(ct.impressions ?? 0),
+        cost:        Number(ct.cost        ?? 0),
       });
 
       const pt = prev.totals ?? {};
-      const prevTotals = (pt.installs ?? 0) > 0 || (pt.cost ?? 0) > 0
-        ? deriveTotals({ installs: pt.installs ?? 0, clicks: pt.clicks ?? 0, impressions: pt.impressions ?? 0, cost: pt.cost ?? 0 })
+      const prevTotals = Number(pt.installs ?? 0) > 0 || Number(pt.cost ?? 0) > 0
+        ? deriveTotals({ installs: Number(pt.installs ?? 0), clicks: Number(pt.clicks ?? 0), impressions: Number(pt.impressions ?? 0), cost: Number(pt.cost ?? 0) })
         : null;
 
       const apps = [...new Map(daily.map((r) => [r.appToken, { token: r.appToken, name: r.appName }])).values()];
