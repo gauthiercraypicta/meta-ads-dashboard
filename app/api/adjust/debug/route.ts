@@ -17,8 +17,8 @@ export async function GET() {
   type C = { label: string; url: string; headers: Record<string, string> };
   const candidates: C[] = [
     // The correct base URL found via Airbyte docs
-    { label: 'dash RS/report Bearer',         url: `${DASH_RS}/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,         headers: { Authorization: `Bearer ${apiToken}` } },
-    { label: 'dash RS/report Token token=',   url: `${DASH_RS}/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,         headers: { Authorization: `Token token=${apiToken}` } },
+    { label: 'dash RS/report date_period Bearer',     url: `${DASH_RS}/report?app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day&metrics=installs&limit=5`,   headers: { Authorization: `Bearer ${apiToken}` } },
+    { label: 'dash RS/report date_period Token',      url: `${DASH_RS}/report?app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day&metrics=installs&limit=5`,   headers: { Authorization: `Token token=${apiToken}` } },
     { label: 'dash RS/filters_data (probe)',  url: `${DASH_RS}/filters_data?required_filters=event_metrics`,                                                                       headers: { Authorization: `Bearer ${apiToken}` } },
     // CANARY: old kpis/v1 (doit toujours être 410)
     { label: 'CANARY kpis/v1',                url: `https://api.adjust.com/kpis/v1/${app}?start_date=${weekAgo}&end_date=${today}&kpis=installs&grouping=day`,                    headers: { Authorization: `Token token=${apiToken}` } },
