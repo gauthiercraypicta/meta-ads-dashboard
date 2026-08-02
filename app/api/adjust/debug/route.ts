@@ -23,8 +23,8 @@ export async function GET() {
   const parts: string[] = [];
   for (const t of appTokens)  parts.push(`app_token[]=${encodeURIComponent(t)}`);
   parts.push(`start_date=${weekAgo}`, `end_date=${today}`);
-  for (const d of DIMENSIONS) parts.push(`dimensions[]=${encodeURIComponent(d)}`);
-  for (const m of METRICS)    parts.push(`metrics[]=${encodeURIComponent(m)}`);
+  parts.push(`dimensions=${DIMENSIONS.join(',')}`);
+  parts.push(`metrics=${METRICS.join(',')}`);
   parts.push('limit=10');
   const url = `${REPORT_URL}?${parts.join('&')}`;
 

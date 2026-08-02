@@ -61,12 +61,12 @@ async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
 ): Promise<ReportResponse> {
-  // URLSearchParams percent-encodes [] → %5B%5D; Adjust requires literal brackets
+  // app_token uses [] (repeated), dimensions/metrics use comma-separated single param
   const parts: string[] = [];
-  for (const t of appTokens)  parts.push(`app_token[]=${encodeURIComponent(t)}`);
+  for (const t of appTokens) parts.push(`app_token[]=${encodeURIComponent(t)}`);
   parts.push(`start_date=${range.start_date}`, `end_date=${range.end_date}`);
-  for (const d of DIMENSIONS) parts.push(`dimensions[]=${encodeURIComponent(d)}`);
-  for (const m of METRICS)    parts.push(`metrics[]=${encodeURIComponent(m)}`);
+  parts.push(`dimensions=${DIMENSIONS.join(',')}`);
+  parts.push(`metrics=${METRICS.join(',')}`);
   parts.push('limit=50000');
 
   const url = `${REPORT_URL}?${parts.join('&')}`;
