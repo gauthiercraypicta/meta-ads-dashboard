@@ -61,10 +61,10 @@ async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
 ): Promise<ReportResponse> {
-  // app_token uses [] (repeated), dimensions/metrics use comma-separated single param
+  // dash.adjust.com Report Service uses date_period=YYYY-MM-DD:YYYY-MM-DD
   const parts: string[] = [];
   for (const t of appTokens) parts.push(`app_token[]=${encodeURIComponent(t)}`);
-  parts.push(`start_date=${range.start_date}`, `end_date=${range.end_date}`);
+  parts.push(`date_period=${range.start_date}:${range.end_date}`);
   parts.push(`dimensions=${DIMENSIONS.join(',')}`);
   parts.push(`metrics=${METRICS.join(',')}`);
   parts.push('limit=50000');
