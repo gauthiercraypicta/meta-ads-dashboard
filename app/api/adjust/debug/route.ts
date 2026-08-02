@@ -11,37 +11,70 @@ export async function GET() {
   const today   = new Date().toISOString().split('T')[0];
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
   const app     = appTokens[0];
-  const base    = `start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`;
-  const baseApp = `app_token[]=${app}&${base}`;
   const auth    = `Token token=${apiToken}`;
+  const jsonHdr = { Authorization: auth, Accept: 'application/json' };
 
-  // Test every plausible Adjust Report Service URL variant
+  // The Accept:application/json variant gave "Server internal error" instead of "Page not found"
+  // → the JSON handler exists. Let's find which parameters make it work.
   const candidates = [
-    { label: 'CANARY kpis/v1',                url: `https://api.adjust.com/kpis/v1/${app}?start_date=${weekAgo}&end_date=${today}&kpis=installs&grouping=day`, auth },
-    { label: 'reports-service/report',         url: `https://api.adjust.com/reports-service/report?${baseApp}`, auth },
-    { label: 'reports-service/reports',        url: `https://api.adjust.com/reports-service/reports?${baseApp}`, auth },
-    { label: 'reports-service/json-report',    url: `https://api.adjust.com/reports-service/json-report?${baseApp}`, auth },
-    { label: 'reports-service/csv-report',     url: `https://api.adjust.com/reports-service/csv-report?${baseApp}`, auth },
-    { label: 'reports-service/report.json',    url: `https://api.adjust.com/reports-service/report.json?${baseApp}`, auth },
-    { label: 'reports-service/v1/report',      url: `https://api.adjust.com/reports-service/v1/report?${baseApp}`, auth },
-    { label: 'reports/v1 app in path',         url: `https://api.adjust.com/reports/v1/${app}?${base}`, auth },
-    { label: 'v2 kpis app in path',            url: `https://api.adjust.com/kpis/v2/${app}?${base}`, auth },
-    { label: 'dashboard-api/reports',          url: `https://api.adjust.com/dashboard-api/reports?${baseApp}`, auth },
-    { label: 'rs-api/report',                  url: `https://api.adjust.com/rs-api/report?${baseApp}`, auth },
-    { label: 'accept json header',             url: `https://api.adjust.com/reports-service/report?${baseApp}`, auth, accept: 'application/json' },
+    // Minimal params
+    {
+      label: 'json: day + installs (minimal)',
+      url: `https://api.adjust.com/reports-service/report?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
+      headers: jsonHdr,
+    },
+    // With app token
+    {
+      label: 'json: + app_token[]',
+      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
+      headers: jsonHdr,
+    },
+    // With currency
+    {
+      label: 'json: + currency=USD',
+      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&currency=USD&limit=5`,
+      headers: jsonHdr,
+    },
+    // More dimensions
+    {
+      label: 'json: day,campaign + installs,cost',
+      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day,campaign&metrics=installs,cost&limit=5`,
+      headers: jsonHdr,
+    },
+    // Attribution type param
+    {
+      label: 'json: + attribution_type=click',
+      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&attribution_type=click&limit=5`,
+      headers: jsonHdr,
+    },
+    // Try cohorts endpoint
+    {
+      label: 'json: cohorts endpoint',
+      url: `https://api.adjust.com/reports-service/cohorts?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
+      headers: jsonHdr,
+    },
+    // Alternative subdomains
+    {
+      label: 'reporting.adjust.com',
+      url: `https://reporting.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
+      headers: jsonHdr,
+    },
+    {
+      label: 'rs-api.adjust.com',
+      url: `https://rs-api.adjust.com/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
+      headers: jsonHdr,
+    },
   ];
 
   const results = await Promise.all(candidates.map(async (c) => {
     try {
-      const headers: Record<string, string> = { Authorization: c.auth };
-      if ('accept' in c && c.accept) headers['Accept'] = c.accept as string;
-      const res  = await fetch(c.url, { headers });
+      const res  = await fetch(c.url, { headers: c.headers });
       const body = await res.text().catch(() => '');
-      return { label: c.label, status: res.status, body: body.slice(0, 200) };
+      return { label: c.label, status: res.status, body: body.slice(0, 300) };
     } catch (e) {
-      return { label: c.label, status: null, body: String(e).slice(0, 150) };
+      return { label: c.label, status: null, body: String(e).slice(0, 200) };
     }
   }));
 
-  return NextResponse.json({ today, app_token: app, token_prefix: apiToken.slice(0, 6), results });
+  return NextResponse.json({ today, app, results });
 }
