@@ -272,9 +272,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return granularity === 'week' ? toWeekly(pts) : pts;
   }, [data, granularity]);
 
-  // Only paid campaigns (cost > 0) — include even if installs = 0
+  // Real paid campaigns = numeric campaign_id_network (Meta/Google ID) + any activity
+  // Excludes organic/direct/social/crm which have string-named tokens
   const paidCampaigns = useMemo(() =>
-    data ? data.campaigns.filter((c) => c.cost > 0) : []
+    data ? data.campaigns.filter(
+      (c) => (c.cost > 0 || c.installs > 0) && /^\d+$/.test(c.token)
+    ) : []
   , [data]);
 
   const sortedCampaigns = useMemo(() => {
