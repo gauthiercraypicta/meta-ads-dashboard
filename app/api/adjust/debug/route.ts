@@ -6,7 +6,7 @@ export async function GET() {
 
   const config = {
     ADJUST_API_TOKEN:  apiToken  ? `${apiToken.slice(0, 6)}…(${apiToken.length} chars)` : '❌ non défini',
-    ADJUST_APP_TOKENS: appTokens.length > 0 ? appTokens.map((t) => `${t}`) : ['❌ non défini'],
+    ADJUST_APP_TOKENS: appTokens.length > 0 ? appTokens : ['❌ non défini'],
   };
 
   if (!apiToken || appTokens.length === 0) {
@@ -18,40 +18,40 @@ export async function GET() {
   const app     = appTokens[0];
 
   const candidates = [
-    // Variant A: app_token[] literal brackets, comma dimensions
+    // Canary: KPI v1 (doit retourner 410 si le token est valide et l'API accessible)
     {
-      label: 'A: app_token[]+dims comma',
-      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day,campaign&metrics=installs,cost&limit=5`,
+      label: 'CANARY kpis/v1 (doit être 410)',
+      url: `https://api.adjust.com/kpis/v1/${app}?start_date=${weekAgo}&end_date=${today}&kpis=installs&grouping=day`,
       auth: `Token token=${apiToken}`,
     },
-    // Variant B: filter_by approach
+    // Report Service sans app filter (test endpoint)
     {
-      label: 'B: filter_by app_token',
-      url: `https://api.adjust.com/reports-service/report?filter_by=app_token%3D${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day,campaign&metrics=installs,cost&limit=5`,
-      auth: `Token token=${apiToken}`,
-    },
-    // Variant C: no app filter (test if endpoint exists)
-    {
-      label: 'C: no app filter (endpoint probe)',
+      label: 'RS sans app filter',
       url: `https://api.adjust.com/reports-service/report?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
       auth: `Token token=${apiToken}`,
     },
-    // Variant D: Bearer auth
+    // Report Service sans auth (si 401/403 → endpoint existe)
     {
-      label: 'D: Bearer auth',
-      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day,campaign&metrics=installs,cost&limit=5`,
-      auth: `Bearer ${apiToken}`,
+      label: 'RS sans auth (doit être 401/403 si endpoint existe)',
+      url: `https://api.adjust.com/reports-service/report?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
+      auth: '',
     },
-    // Variant E: KPI v2 (if exists)
+    // Autre domaine possible
     {
-      label: 'E: kpis/v2',
-      url: `https://api.adjust.com/kpis/v2/${app}?start_date=${weekAgo}&end_date=${today}&kpis=installs,cost&grouping=day`,
+      label: 'suite.adjust.com RS',
+      url: `https://suite.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
       auth: `Token token=${apiToken}`,
     },
-    // Variant F: no auth header (should give 401/403 if endpoint exists)
+    // app.adjust.com
     {
-      label: 'F: no auth (endpoint probe)',
-      url: `https://api.adjust.com/reports-service/report?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
+      label: 'app.adjust.com RS',
+      url: `https://app.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
+      auth: `Token token=${apiToken}`,
+    },
+    // Test connectivité basique
+    {
+      label: 'ping api.adjust.com racine',
+      url: `https://api.adjust.com/`,
       auth: '',
     },
   ];
@@ -62,9 +62,9 @@ export async function GET() {
       if (c.auth) headers['Authorization'] = c.auth;
       const res  = await fetch(c.url, { headers });
       const body = await res.text().catch(() => '');
-      return { label: c.label, status: res.status, body: body.slice(0, 300) };
+      return { label: c.label, status: res.status, body: body.slice(0, 400) };
     } catch (e) {
-      return { label: c.label, status: null, body: String(e).slice(0, 200) };
+      return { label: c.label, status: null, body: String(e).slice(0, 300) };
     }
   }));
 
