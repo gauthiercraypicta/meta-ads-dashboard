@@ -13,39 +13,41 @@ export async function GET() {
   const today   = new Date().toISOString().split('T')[0];
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
   const app     = appTokens[0];
-  const base    = `app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day&limit=3`;
 
-  // The filters_data id is install_engagement_events — try it in metrics= directly
-  const candidates = [
-    {
-      label: 'metrics includes install_engagement_events',
-      url:   `${DASH_RS}/report?${base}&metrics=installs,cost,install_engagement_events`,
-    },
-    {
-      label: 'event_kpis[]=install_engagement_events',
-      url:   `${DASH_RS}/report?${base}&metrics=installs,cost&event_kpis[]=install_engagement_events`,
-    },
-  ];
+  // Fetch with all dimensions to see every campaign + all fields
+  const url = `${DASH_RS}/report?app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day,app_token,campaign,campaign_id_network,os_name&metrics=installs,cost,install_engagement_events&limit=5000`;
 
-  const results = await Promise.all(candidates.map(async (c) => {
-    try {
-      const res  = await fetch(c.url, { headers: { Authorization: `Bearer ${apiToken}` } });
-      const body = await res.text().catch(() => '');
-      let parsed: unknown = null;
-      try { parsed = JSON.parse(body); } catch { /* ignore */ }
-      const rows = parsed && typeof parsed === 'object' && 'rows' in parsed
-        ? (parsed as { rows: unknown[] }).rows : [];
-      return {
-        label:     c.label,
-        status:    res.status,
-        rowKeys:   rows.length > 0 ? Object.keys(rows[0] as object) : [],
-        sampleRow: rows[0] ?? null,
-        rawBody:   body.slice(0, 400),
-      };
-    } catch (e) {
-      return { label: c.label, status: null, rowKeys: [], sampleRow: null, rawBody: String(e) };
+  try {
+    const res  = await fetch(url, { headers: { Authorization: `Bearer ${apiToken}` } });
+    const body = await res.text();
+    const parsed = JSON.parse(body) as { rows?: Record<string, unknown>[] };
+    const rows = parsed.rows ?? [];
+
+    // Unique campaigns with their fields
+    const campMap = new Map<string, { campaign: unknown; campaign_id_network: unknown; app_token: unknown; cost: number; installs: number }>();
+    for (const r of rows) {
+      const key = String(r.campaign_id_network ?? r.campaign ?? '(empty)');
+      const e = campMap.get(key) ?? { campaign: r.campaign, campaign_id_network: r.campaign_id_network, app_token: r.app_token, cost: 0, installs: 0 };
+      e.cost     += Number(r.cost ?? 0);
+      e.installs += Number(r.installs ?? 0);
+      campMap.set(key, e);
     }
-  }));
 
-  return NextResponse.json({ today, app, results });
+    const campaigns = Array.from(campMap.entries())
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => b.cost - a.cost);
+
+    // First row keys to see what fields Adjust returns
+    const sampleRowKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+    return NextResponse.json({
+      status: res.status,
+      totalRows: rows.length,
+      sampleRowKeys,
+      sampleRow: rows[0] ?? null,
+      campaigns,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
 }
