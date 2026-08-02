@@ -15,19 +15,14 @@ export async function GET() {
   const RS      = 'https://api.adjust.com/reports-service/report';
   const json    = 'application/json';
 
-  const candidates = [
-    // Combo Bearer + Accept: json (non testé)
+  type Candidate = { label: string; url: string; headers: Record<string, string>; method?: string; body?: string };
+  const candidates: Candidate[] = [
     { label: 'Bearer + Accept:json',         url: `${RS}?${baseQ}`,                              headers: { Authorization: `Bearer ${apiToken}`, Accept: json } },
-    // Token dans query string
     { label: 'token= query param',           url: `${RS}?token=${apiToken}&${baseQ}`,             headers: { Accept: json } },
     { label: 'user_token= query param',      url: `${RS}?user_token=${apiToken}&${baseQ}`,        headers: { Accept: json } },
-    // App token dans path comme kpis/v1
     { label: 'app in path Token',            url: `https://api.adjust.com/reports-service/report/${app}?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`, headers: { Authorization: `Token token=${apiToken}`, Accept: json } },
-    // Sans app_token du tout
     { label: 'Bearer no app filter',         url: `${RS}?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`, headers: { Authorization: `Bearer ${apiToken}`, Accept: json } },
-    // GET avec body JSON (POST)
     { label: 'POST Token+json body',         url: RS,                                             headers: { Authorization: `Token token=${apiToken}`, Accept: json, 'Content-Type': json }, method: 'POST', body: JSON.stringify({ app_token: [app], start_date: weekAgo, end_date: today, dimensions: ['day'], metrics: ['installs'], limit: 5 }) },
-    // kpis/v1 AVEC Accept:json (pour voir le format d'erreur)
     { label: 'CANARY kpis/v1 + Accept:json', url: `https://api.adjust.com/kpis/v1/${app}?start_date=${weekAgo}&end_date=${today}&kpis=installs&grouping=day`, headers: { Authorization: `Token token=${apiToken}`, Accept: json } },
   ];
 
