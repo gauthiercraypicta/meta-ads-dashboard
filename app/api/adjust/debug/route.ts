@@ -11,66 +11,33 @@ export async function GET() {
   const today   = new Date().toISOString().split('T')[0];
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
   const app     = appTokens[0];
-  const auth    = `Token token=${apiToken}`;
-  const jsonHdr = { Authorization: auth, Accept: 'application/json' };
+  const baseQ   = `app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`;
+  const RS      = 'https://api.adjust.com/reports-service/report';
+  const json    = 'application/json';
 
-  // The Accept:application/json variant gave "Server internal error" instead of "Page not found"
-  // → the JSON handler exists. Let's find which parameters make it work.
   const candidates = [
-    // Minimal params
-    {
-      label: 'json: day + installs (minimal)',
-      url: `https://api.adjust.com/reports-service/report?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
-      headers: jsonHdr,
-    },
-    // With app token
-    {
-      label: 'json: + app_token[]',
-      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
-      headers: jsonHdr,
-    },
-    // With currency
-    {
-      label: 'json: + currency=USD',
-      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&currency=USD&limit=5`,
-      headers: jsonHdr,
-    },
-    // More dimensions
-    {
-      label: 'json: day,campaign + installs,cost',
-      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day,campaign&metrics=installs,cost&limit=5`,
-      headers: jsonHdr,
-    },
-    // Attribution type param
-    {
-      label: 'json: + attribution_type=click',
-      url: `https://api.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&attribution_type=click&limit=5`,
-      headers: jsonHdr,
-    },
-    // Try cohorts endpoint
-    {
-      label: 'json: cohorts endpoint',
-      url: `https://api.adjust.com/reports-service/cohorts?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
-      headers: jsonHdr,
-    },
-    // Alternative subdomains
-    {
-      label: 'reporting.adjust.com',
-      url: `https://reporting.adjust.com/reports-service/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
-      headers: jsonHdr,
-    },
-    {
-      label: 'rs-api.adjust.com',
-      url: `https://rs-api.adjust.com/report?app_token[]=${app}&start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`,
-      headers: jsonHdr,
-    },
+    // Combo Bearer + Accept: json (non testé)
+    { label: 'Bearer + Accept:json',         url: `${RS}?${baseQ}`,                              headers: { Authorization: `Bearer ${apiToken}`, Accept: json } },
+    // Token dans query string
+    { label: 'token= query param',           url: `${RS}?token=${apiToken}&${baseQ}`,             headers: { Accept: json } },
+    { label: 'user_token= query param',      url: `${RS}?user_token=${apiToken}&${baseQ}`,        headers: { Accept: json } },
+    // App token dans path comme kpis/v1
+    { label: 'app in path Token',            url: `https://api.adjust.com/reports-service/report/${app}?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`, headers: { Authorization: `Token token=${apiToken}`, Accept: json } },
+    // Sans app_token du tout
+    { label: 'Bearer no app filter',         url: `${RS}?start_date=${weekAgo}&end_date=${today}&dimensions=day&metrics=installs&limit=5`, headers: { Authorization: `Bearer ${apiToken}`, Accept: json } },
+    // GET avec body JSON (POST)
+    { label: 'POST Token+json body',         url: RS,                                             headers: { Authorization: `Token token=${apiToken}`, Accept: json, 'Content-Type': json }, method: 'POST', body: JSON.stringify({ app_token: [app], start_date: weekAgo, end_date: today, dimensions: ['day'], metrics: ['installs'], limit: 5 }) },
+    // kpis/v1 AVEC Accept:json (pour voir le format d'erreur)
+    { label: 'CANARY kpis/v1 + Accept:json', url: `https://api.adjust.com/kpis/v1/${app}?start_date=${weekAgo}&end_date=${today}&kpis=installs&grouping=day`, headers: { Authorization: `Token token=${apiToken}`, Accept: json } },
   ];
 
   const results = await Promise.all(candidates.map(async (c) => {
     try {
-      const res  = await fetch(c.url, { headers: c.headers });
+      const opts: RequestInit = { headers: c.headers };
+      if ('method' in c) { opts.method = c.method as string; opts.body = c.body as string; }
+      const res  = await fetch(c.url, opts);
       const body = await res.text().catch(() => '');
-      return { label: c.label, status: res.status, body: body.slice(0, 300) };
+      return { label: c.label, status: res.status, body: body.slice(0, 400) };
     } catch (e) {
       return { label: c.label, status: null, body: String(e).slice(0, 200) };
     }
