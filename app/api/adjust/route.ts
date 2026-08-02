@@ -120,10 +120,11 @@ export async function GET(req: Request) {
       ]);
 
       // Map flat rows → AdjustDailyRow (Adjust returns numbers as strings)
-      // Also filter by app token in case the API ignores the app_token[] query param
+      // Filter: only configured app tokens + exclude today (incomplete day)
       const appTokenSet = new Set(APP_TOKENS);
+      const todayStr    = fmt(new Date());
       const daily: AdjustDailyRow[] = (curr.rows ?? [])
-        .filter((r) => !r.app_token || appTokenSet.has(r.app_token))
+        .filter((r) => (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr)
         .map((r) => ({
         date:          r.day          ?? '',
         appToken:      r.app_token    ?? '',
@@ -172,7 +173,7 @@ export async function GET(req: Request) {
       const totals = deriveTotals(sumRows(daily));
 
       const prevDaily: AdjustDailyRow[] = (prev.rows ?? [])
-        .filter((r) => !r.app_token || appTokenSet.has(r.app_token))
+        .filter((r) => (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr)
         .map((r) => ({
         date:          r.day          ?? '',
         appToken:      r.app_token    ?? '',
