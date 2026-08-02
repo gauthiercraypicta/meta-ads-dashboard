@@ -5,11 +5,11 @@ import type { AdjustDailyRow, AdjustCampaignSummary, AdjustTotals, AdjustRespons
 const TTL        = 5 * 60 * 1000;
 const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/report';
 
-// install_engagement metric ID from filters_data (not the event token)
+// install_engagement metric ID from filters_data — belongs in metrics= not event_kpis[]
 const ENGAGE_TOKEN = 'install_engagement_events';
 
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
-const METRICS    = ['installs', 'clicks', 'impressions', 'cost'];
+const METRICS    = ['installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN];
 
 const API_TOKEN  = process.env.ADJUST_API_TOKEN  ?? '';
 const APP_TOKENS = (process.env.ADJUST_APP_TOKENS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -69,7 +69,7 @@ async function fetchReport(
   parts.push(`date_period=${range.start_date}:${range.end_date}`);
   parts.push(`dimensions=${DIMENSIONS.join(',')}`);
   parts.push(`metrics=${METRICS.join(',')}`);
-  parts.push(`event_kpis[]=${ENGAGE_TOKEN}`);
+  // event_kpis[] is silently ignored by Adjust — metric id goes in metrics= directly
   parts.push('limit=50000');
 
   const url = `${REPORT_URL}?${parts.join('&')}`;

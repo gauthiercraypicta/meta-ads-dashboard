@@ -13,12 +13,18 @@ export async function GET() {
   const today   = new Date().toISOString().split('T')[0];
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().split('T')[0];
   const app     = appTokens[0];
-  const base    = `app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day&metrics=installs,cost&limit=3`;
+  const base    = `app_token[]=${app}&date_period=${weekAgo}:${today}&dimensions=day&limit=3`;
 
+  // The filters_data id is install_engagement_events — try it in metrics= directly
   const candidates = [
-    { label: 'event_kpis[]=citg8a',        url: `${DASH_RS}/report?${base}&event_kpis[]=citg8a` },
-    { label: 'event_kpis[]=citg8a.events', url: `${DASH_RS}/report?${base}&event_kpis[]=citg8a.events` },
-    { label: 'filters_data event_metrics',  url: `${DASH_RS}/filters_data?required_filters=event_metrics&app_token[]=${app}` },
+    {
+      label: 'metrics includes install_engagement_events',
+      url:   `${DASH_RS}/report?${base}&metrics=installs,cost,install_engagement_events`,
+    },
+    {
+      label: 'event_kpis[]=install_engagement_events',
+      url:   `${DASH_RS}/report?${base}&metrics=installs,cost&event_kpis[]=install_engagement_events`,
+    },
   ];
 
   const results = await Promise.all(candidates.map(async (c) => {
@@ -34,7 +40,7 @@ export async function GET() {
         status:    res.status,
         rowKeys:   rows.length > 0 ? Object.keys(rows[0] as object) : [],
         sampleRow: rows[0] ?? null,
-        rawBody:   body.slice(0, 600),
+        rawBody:   body.slice(0, 400),
       };
     } catch (e) {
       return { label: c.label, status: null, rowKeys: [], sampleRow: null, rawBody: String(e) };
