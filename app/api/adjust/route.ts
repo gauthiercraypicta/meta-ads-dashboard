@@ -5,8 +5,8 @@ import type { AdjustDailyRow, AdjustCampaignSummary, AdjustTotals, AdjustRespons
 const TTL        = 5 * 60 * 1000;
 const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/report';
 
-// install_engagement event token — passed as event_kpis[], not in metrics
-const ENGAGE_TOKEN = 'citg8a';
+// install_engagement metric ID from filters_data (not the event token)
+const ENGAGE_TOKEN = 'install_engagement_events';
 
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
 const METRICS    = ['installs', 'clicks', 'impressions', 'cost'];
@@ -69,7 +69,7 @@ async function fetchReport(
   parts.push(`date_period=${range.start_date}:${range.end_date}`);
   parts.push(`dimensions=${DIMENSIONS.join(',')}`);
   parts.push(`metrics=${METRICS.join(',')}`);
-  parts.push(`event_kpis[]=${ENGAGE_TOKEN}.events`);
+  parts.push(`event_kpis[]=${ENGAGE_TOKEN}`);
   parts.push('limit=50000');
 
   const url = `${REPORT_URL}?${parts.join('&')}`;
@@ -90,13 +90,8 @@ async function fetchReport(
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function extractEngagement(r: ReportRow): number {
-  // Adjust may return event count under various keys depending on API version
-  const v = r[ENGAGE_TOKEN]
-    ?? r[`${ENGAGE_TOKEN}.events`]
-    ?? r['install_engagement']
-    ?? r['install_engagement.events']
-    ?? 0;
-  return Number(v);
+  // Key in response rows matches the event_kpis[] id: install_engagement_events
+  return Number(r[ENGAGE_TOKEN] ?? 0);
 }
 
 function deriveTotals(t: {
