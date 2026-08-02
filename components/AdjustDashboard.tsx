@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, Cell,
+  Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import type { AdjustResponse, AdjustDailyRow, AdjustCampaignSummary } from '@/types/adjust';
 
@@ -263,24 +263,54 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return granularity === 'week' ? toWeekly(pts) : pts;
   }, [data, granularity]);
 
-  const sortedCampaigns = useMemo(() => {
-    if (!data) return [];
-    return [...data.campaigns]
-      .filter((c) => c.installs > 0 || c.cost > 0 || c.clicks > 0 || c.impressions > 0)
-      .sort((a, b) => {
-        const diff = (a[sortKey] as number) - (b[sortKey] as number);
-        return sortDir === 'desc' ? -diff : diff;
-      });
-  }, [data, sortKey, sortDir]);
+  // Only paid campaigns (cost > 0) with at least one install
+  const paidCampaigns = useMemo(() =>
+    data ? data.campaigns.filter((c) => c.cost > 0 && c.installs > 0) : []
+  , [data]);
 
-  const campaignBars = useMemo(() => {
-    if (!data) return [];
-    return data.campaigns.map((c) => ({
-      name: c.name.replace(/UA_|Picta_?/gi, '').trim().slice(0, 18),
-      CPI:  +Number(c.cpi ?? 0).toFixed(2),
-      CPM:  +Number(c.cpm ?? 0).toFixed(2),
-    }));
-  }, [data]);
+  const sortedCampaigns = useMemo(() => {
+    return [...paidCampaigns].sort((a, b) => {
+      const diff = (a[sortKey] as number) - (b[sortKey] as number);
+      return sortDir === 'desc' ? -diff : diff;
+    });
+  }, [paidCampaigns, sortKey, sortDir]);
+
+  // Per-campaign CPI evolution for line chart (top 8 by installs)
+  const campaignCpiLines = useMemo(() => {
+    if (!data || !paidCampaigns.length) return { points: [], keys: [] };
+
+    const topCamps = [...paidCampaigns]
+      .sort((a, b) => b.installs - a.installs)
+      .slice(0, 8);
+    const campByToken = new Map(topCamps.map((c) => [c.token, c.name.replace(/UA_|Picta_?/gi, '').trim().slice(0, 20)]));
+
+    // Accumulate cost + installs per date × campaign
+    const acc = new Map<string, Map<string, { cost: number; installs: number }>>();
+    for (const r of data.daily) {
+      const label = campByToken.get(r.campaignToken);
+      if (!label) continue;
+      if (!acc.has(r.date)) acc.set(r.date, new Map());
+      const dayMap = acc.get(r.date)!;
+      const e = dayMap.get(label) ?? { cost: 0, installs: 0 };
+      e.cost     += r.cost;
+      e.installs += r.installs;
+      dayMap.set(label, e);
+    }
+
+    const keys = [...campByToken.values()];
+    const points = Array.from(acc.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, dayMap]) => {
+        const pt: Record<string, string | number | null> = { displayDate: fmtDate(date) };
+        for (const key of keys) {
+          const e = dayMap.get(key);
+          pt[key] = e && e.installs > 0 ? +(e.cost / e.installs).toFixed(2) : null;
+        }
+        return pt;
+      });
+
+    return { points, keys };
+  }, [data, paidCampaigns]);
 
   if (loading) {
     return (
@@ -429,21 +459,25 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         </ChartCard>
       </div>
 
-      {/* 4. Comparison par campagne */}
-      <ChartCard title="CPI & CPM par campagne" subtitle="Comparaison du coût d'acquisition et du coût média">
-        <ResponsiveContainer width="100%" height={Math.max(180, campaignBars.length * 48)}>
-          <BarChart data={campaignBars} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" horizontal={false} />
-            <XAxis type="number" tickFormatter={(v) => `$${v.toFixed(0)}`} {...AXIS_COMMON} />
-            <YAxis dataKey="name" type="category" {...AXIS_COMMON} width={100} tick={{ ...AXIS_TICK, fontSize: 10 }} />
-            <Tooltip formatter={(v: unknown) => typeof v === 'number' ? `$${v.toFixed(2)}` : '—'} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Bar dataKey="CPI" fill="#3b82f6" radius={[0, 3, 3, 0]}>
-              {campaignBars.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-            </Bar>
-            <Bar dataKey="CPM" fill="#f97316" radius={[0, 3, 3, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+      {/* 4. CPI par campagne — évolution */}
+      <ChartCard title="CPI par campagne — évolution" subtitle="Coût par install quotidien · campagnes actives uniquement (hors organic/direct)">
+        {campaignCpiLines.keys.length === 0 ? (
+          <p className="text-sm text-gray-400 py-6 text-center">Aucune campagne payante avec installs sur cette période.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={campaignCpiLines.points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+              <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+              <YAxis tickFormatter={(v) => `$${Number(v).toFixed(1)}`} {...AXIS_COMMON} width={46} />
+              <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`$${v.toFixed(2)}`, 'CPI'] : '—'} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              {campaignCpiLines.keys.map((key, i) => (
+                <Line key={key} type="monotone" dataKey={key} stroke={COLORS[i % COLORS.length]}
+                  strokeWidth={2} dot={false} connectNulls />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </ChartCard>
 
       {/* 5. Campaign table */}
