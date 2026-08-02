@@ -5,9 +5,11 @@ import type { AdjustDailyRow, AdjustCampaignSummary, AdjustTotals, AdjustRespons
 const TTL        = 5 * 60 * 1000;
 const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/report';
 
-// Dimensions = axes de découpe ; Metrics = valeurs numériques
+// install_engagement event token
+const ENGAGE_TOKEN = 'citg8a';
+
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
-const METRICS    = ['installs', 'clicks', 'impressions', 'cost'];
+const METRICS    = ['installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN];
 
 const API_TOKEN  = process.env.ADJUST_API_TOKEN  ?? '';
 const APP_TOKENS = (process.env.ADJUST_APP_TOKENS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -37,21 +39,22 @@ function getPrevRange(curr: { start_date: string; end_date: string }): { start_d
 // ─── Adjust Report Service types ──────────────────────────────────────────────
 
 interface ReportRow {
-  day?:                  string;
-  app?:                  string;
-  app_token?:            string;
-  campaign?:             string;
-  campaign_id_network?:  string;
-  os_name?:              string;
-  installs?:             number;
-  clicks?:               number;
-  impressions?:          number;
-  cost?:                 number;
+  day?:                 string;
+  app?:                 string;
+  app_token?:           string;
+  campaign?:            string;
+  campaign_id_network?: string;
+  os_name?:             string;
+  installs?:            number;
+  clicks?:              number;
+  impressions?:         number;
+  cost?:                number;
+  [key: string]:        unknown;   // event metrics (e.g. citg8a)
 }
 
 interface ReportResponse {
-  rows:     ReportRow[];
-  totals?:  { installs?: number; clicks?: number; impressions?: number; cost?: number };
+  rows:      ReportRow[];
+  totals?:   Record<string, unknown>;
   warnings?: unknown[];
 }
 
@@ -61,7 +64,6 @@ async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
 ): Promise<ReportResponse> {
-  // dash.adjust.com Report Service uses date_period=YYYY-MM-DD:YYYY-MM-DD
   const parts: string[] = [];
   for (const t of appTokens) parts.push(`app_token[]=${encodeURIComponent(t)}`);
   parts.push(`date_period=${range.start_date}:${range.end_date}`);
@@ -84,16 +86,56 @@ async function fetchReport(
   return res.json() as Promise<ReportResponse>;
 }
 
-// ─── Aggregation ──────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function deriveTotals(t: { installs: number; clicks: number; impressions: number; cost: number }): AdjustTotals {
+function extractEngagement(r: ReportRow): number {
+  // Adjust may return event count as {token} or {token}.events
+  const v = r[ENGAGE_TOKEN] ?? r[`${ENGAGE_TOKEN}.events`] ?? 0;
+  return Number(v);
+}
+
+function deriveTotals(t: {
+  installs: number; clicks: number; impressions: number; cost: number; engagement: number;
+}): AdjustTotals {
   return {
     ...t,
-    sessions:    0,
-    cpi: t.installs    > 0 ? t.cost / t.installs    : 0,
-    ctr: t.impressions > 0 ? t.clicks / t.impressions : 0,
-    cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0,
+    sessions:      0,
+    cpi:           t.installs    > 0 ? t.cost / t.installs    : 0,
+    ctr:           t.impressions > 0 ? t.clicks / t.impressions : 0,
+    cpm:           t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0,
+    cpiEngagement: t.engagement  > 0 ? t.cost / t.engagement  : 0,
   };
+}
+
+function mapRow(r: ReportRow): AdjustDailyRow {
+  return {
+    date:          r.day          ?? '',
+    appToken:      r.app_token    ?? '',
+    appName:       r.app          ?? r.app_token ?? '',
+    campaignToken: r.campaign_id_network ?? r.campaign ?? '',
+    campaignName:  r.campaign     ?? '',
+    installs:      Number(r.installs    ?? 0),
+    clicks:        Number(r.clicks      ?? 0),
+    impressions:   Number(r.impressions ?? 0),
+    cost:          Number(r.cost        ?? 0),
+    sessions:      0,
+    engagement:    extractEngagement(r),
+  };
+}
+
+type RowSum = { installs: number; clicks: number; impressions: number; cost: number; engagement: number };
+
+function sumRows(rows: AdjustDailyRow[]): RowSum {
+  return rows.reduce<RowSum>(
+    (a, r) => ({
+      installs:    a.installs    + r.installs,
+      clicks:      a.clicks      + r.clicks,
+      impressions: a.impressions + r.impressions,
+      cost:        a.cost        + r.cost,
+      engagement:  a.engagement  + r.engagement,
+    }),
+    { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 },
+  );
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -119,74 +161,43 @@ export async function GET(req: Request) {
         fetchReport(APP_TOKENS, prevRange),
       ]);
 
-      // Map flat rows → AdjustDailyRow (Adjust returns numbers as strings)
-      // Filter: only configured app tokens + exclude today (incomplete day)
       const appTokenSet = new Set(APP_TOKENS);
       const todayStr    = fmt(new Date());
-      const daily: AdjustDailyRow[] = (curr.rows ?? [])
-        .filter((r) => (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr)
-        .map((r) => ({
-        date:          r.day          ?? '',
-        appToken:      r.app_token    ?? '',
-        appName:       r.app          ?? r.app_token ?? '',
-        campaignToken: r.campaign_id_network ?? r.campaign ?? '',
-        campaignName:  r.campaign     ?? '',
-        installs:      Number(r.installs     ?? 0),
-        clicks:        Number(r.clicks       ?? 0),
-        impressions:   Number(r.impressions  ?? 0),
-        cost:          Number(r.cost         ?? 0),
-        sessions:      0,
-      }));
 
-      // Aggregate by campaign
+      const filterRow = (r: ReportRow) =>
+        (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr;
+
+      const daily    = (curr.rows ?? []).filter(filterRow).map(mapRow);
+      const prevDail = (prev.rows ?? []).filter(filterRow).map(mapRow);
+
+      // ── Campaigns ────────────────────────────────────────────────────────────
       const campMap = new Map<string, AdjustCampaignSummary>();
       for (const r of daily) {
         const key = r.campaignToken || r.campaignName;
         const c = campMap.get(key) ?? {
           token: r.campaignToken, name: r.campaignName, appName: r.appName,
-          installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0,
-          cpi: 0, ctr: 0, cpm: 0,
+          installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0,
+          cpi: 0, ctr: 0, cpm: 0, cpiEngagement: 0,
         };
         c.installs    += r.installs;
         c.clicks      += r.clicks;
         c.impressions += r.impressions;
         c.cost        += r.cost;
+        c.engagement  += r.engagement;
         campMap.set(key, c);
       }
 
       const campaigns: AdjustCampaignSummary[] = Array.from(campMap.values()).map((c) => ({
         ...c,
-        cpi: c.installs    > 0 ? c.cost / c.installs    : 0,
-        ctr: c.impressions > 0 ? c.clicks / c.impressions : 0,
-        cpm: c.impressions > 0 ? (c.cost / c.impressions) * 1000 : 0,
+        cpi:           c.installs    > 0 ? c.cost / c.installs    : 0,
+        ctr:           c.impressions > 0 ? c.clicks / c.impressions : 0,
+        cpm:           c.impressions > 0 ? (c.cost / c.impressions) * 1000 : 0,
+        cpiEngagement: c.engagement  > 0 ? c.cost / c.engagement  : 0,
       }));
 
-      // Compute totals from rows (not curr.totals which is account-level, not per-app)
-      const sumRows = (rows: AdjustDailyRow[]) =>
-        rows.reduce((a, r) => ({
-          installs:    a.installs    + r.installs,
-          clicks:      a.clicks      + r.clicks,
-          impressions: a.impressions + r.impressions,
-          cost:        a.cost        + r.cost,
-        }), { installs: 0, clicks: 0, impressions: 0, cost: 0 });
-
-      const totals = deriveTotals(sumRows(daily));
-
-      const prevDaily: AdjustDailyRow[] = (prev.rows ?? [])
-        .filter((r) => (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr)
-        .map((r) => ({
-        date:          r.day          ?? '',
-        appToken:      r.app_token    ?? '',
-        appName:       r.app          ?? r.app_token ?? '',
-        campaignToken: r.campaign_id_network ?? r.campaign ?? '',
-        campaignName:  r.campaign     ?? '',
-        installs:      Number(r.installs     ?? 0),
-        clicks:        Number(r.clicks       ?? 0),
-        impressions:   Number(r.impressions  ?? 0),
-        cost:          Number(r.cost         ?? 0),
-        sessions:      0,
-      }));
-      const prevSum = sumRows(prevDaily);
+      // ── Totals (computed from rows, not API totals which are account-level) ──
+      const totals     = deriveTotals(sumRows(daily));
+      const prevSum    = sumRows(prevDail);
       const prevTotals = prevSum.installs > 0 || prevSum.cost > 0
         ? deriveTotals(prevSum)
         : null;

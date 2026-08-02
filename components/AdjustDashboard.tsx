@@ -36,17 +36,18 @@ function generateMock(): AdjustResponse {
       const impressions = Math.round(cost * (ios ? 420 : 600) + Math.random() * 5000);
       const clicks = Math.round(impressions * (0.012 + Math.random() * 0.008));
       const installs = Math.round(clicks * (0.06 + Math.random() * 0.05));
-      daily.push({ date, appToken: c.appToken, appName: c.appName, campaignToken: c.token, campaignName: c.name, installs, clicks, impressions, cost, sessions: Math.round(installs * (2 + Math.random() * 3)) });
+      const engagement = Math.round(installs * (0.55 + Math.random() * 0.3));
+      daily.push({ date, appToken: c.appToken, appName: c.appName, campaignToken: c.token, campaignName: c.name, installs, clicks, impressions, cost, sessions: Math.round(installs * (2 + Math.random() * 3)), engagement });
     }
   }
   const campSummary: AdjustCampaignSummary[] = campaigns.map((c) => {
     const rows = daily.filter((r) => r.campaignToken === c.token);
-    const t = rows.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0 });
-    return { token: c.token, name: c.name, appName: c.appName, ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0 };
+    const t = rows.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0 });
+    return { token: c.token, name: c.name, appName: c.appName, ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
   });
-  const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0 });
-  const totals = { ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0 };
-  const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, sessions: Math.round(totals.sessions * 0.82) };
+  const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0 });
+  const totals = { ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
+  const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82) };
   return { daily, campaigns: campSummary, totals, prevTotals, apps, currency: 'USD' };
 }
 
@@ -69,31 +70,36 @@ interface DailyPoint {
   impressions: number;
   cost: number;
   sessions: number;
+  engagement: number;
   cpi: number;
   ctr: number;
   cpm: number;
+  cpiEngagement: number;
 }
 
+type DayAcc = { installs: number; clicks: number; impressions: number; cost: number; sessions: number; engagement: number };
+
 function aggregateByDate(rows: AdjustDailyRow[]): DailyPoint[] {
-  const map = new Map<string, { installs: number; clicks: number; impressions: number; cost: number; sessions: number }>();
+  const map = new Map<string, DayAcc>();
   for (const r of rows) {
     const e = map.get(r.date);
-    if (!e) map.set(r.date, { installs: r.installs, clicks: r.clicks, impressions: r.impressions, cost: r.cost, sessions: r.sessions });
-    else { e.installs += r.installs; e.clicks += r.clicks; e.impressions += r.impressions; e.cost += r.cost; e.sessions += r.sessions; }
+    if (!e) map.set(r.date, { installs: r.installs, clicks: r.clicks, impressions: r.impressions, cost: r.cost, sessions: r.sessions, engagement: r.engagement });
+    else { e.installs += r.installs; e.clicks += r.clicks; e.impressions += r.impressions; e.cost += r.cost; e.sessions += r.sessions; e.engagement += r.engagement; }
   }
   return Array.from(map.entries())
     .filter(([, t]) => t.installs > 0 || t.cost > 0 || t.clicks > 0 || t.impressions > 0)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, t]) => ({
       date, displayDate: fmtDate(date), ...t,
-      cpi: t.installs   > 0 ? t.cost / t.installs    : 0,
-      ctr: t.impressions > 0 ? t.clicks / t.impressions : 0,
-      cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0,
+      cpi:           t.installs   > 0 ? t.cost / t.installs    : 0,
+      ctr:           t.impressions > 0 ? t.clicks / t.impressions : 0,
+      cpm:           t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0,
+      cpiEngagement: t.engagement > 0  ? t.cost / t.engagement  : 0,
     }));
 }
 
 function toWeekly(pts: DailyPoint[]): DailyPoint[] {
-  const weeks = new Map<string, { installs: number; clicks: number; impressions: number; cost: number; sessions: number; displayDate: string }>();
+  const weeks = new Map<string, DayAcc & { displayDate: string }>();
   for (const p of pts) {
     const d = new Date(p.date + 'T12:00:00');
     const dow = d.getDay();
@@ -101,14 +107,15 @@ function toWeekly(pts: DailyPoint[]): DailyPoint[] {
     const wk = mon.toISOString().split('T')[0];
     const disp = `S ${mon.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`;
     const e = weeks.get(wk);
-    if (!e) weeks.set(wk, { installs: p.installs, clicks: p.clicks, impressions: p.impressions, cost: p.cost, sessions: p.sessions, displayDate: disp });
-    else { e.installs += p.installs; e.clicks += p.clicks; e.impressions += p.impressions; e.cost += p.cost; e.sessions += p.sessions; }
+    if (!e) weeks.set(wk, { installs: p.installs, clicks: p.clicks, impressions: p.impressions, cost: p.cost, sessions: p.sessions, engagement: p.engagement, displayDate: disp });
+    else { e.installs += p.installs; e.clicks += p.clicks; e.impressions += p.impressions; e.cost += p.cost; e.sessions += p.sessions; e.engagement += p.engagement; }
   }
   return Array.from(weeks.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([date, t]) => ({
     date, ...t,
-    cpi: t.installs   > 0 ? t.cost / t.installs    : 0,
-    ctr: t.impressions > 0 ? t.clicks / t.impressions : 0,
-    cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0,
+    cpi:           t.installs   > 0 ? t.cost / t.installs    : 0,
+    ctr:           t.impressions > 0 ? t.clicks / t.impressions : 0,
+    cpm:           t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0,
+    cpiEngagement: t.engagement > 0  ? t.cost / t.engagement  : 0,
   }));
 }
 
@@ -186,12 +193,13 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: { campaigns: Adj
     { key: 'appName',     label: 'App',          fmt: (c) => c.appName },
     { key: 'cost',        label: 'Coût',         fmt: (c) => `$${Number(c.cost ?? 0).toFixed(0)}` },
     { key: 'installs',    label: 'Installs',     fmt: (c) => fmtNum(c.installs) },
-    { key: 'cpi',         label: 'CPI',          fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
-    { key: 'clicks',      label: 'Clics',        fmt: (c) => fmtNum(c.clicks) },
-    { key: 'impressions', label: 'Impressions',  fmt: (c) => fmtNum(c.impressions) },
-    { key: 'ctr',         label: 'CTR',          fmt: (c) => fmtPct(c.ctr) },
-    { key: 'cpm',         label: 'CPM',          fmt: (c) => fmtMoney(c.cpm) },
-    { key: 'sessions',    label: 'Sessions',     fmt: (c) => fmtNum(c.sessions) },
+    { key: 'cpi',           label: 'CPI',          fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
+    { key: 'engagement',    label: 'Engagement',   fmt: (c) => fmtNum(c.engagement) },
+    { key: 'cpiEngagement', label: 'CPI Engage.',  fmt: (c) => c.cpiEngagement > 0 ? fmtMoney(c.cpiEngagement) : '—' },
+    { key: 'clicks',        label: 'Clics',        fmt: (c) => fmtNum(c.clicks) },
+    { key: 'impressions',   label: 'Impressions',  fmt: (c) => fmtNum(c.impressions) },
+    { key: 'ctr',           label: 'CTR',          fmt: (c) => fmtPct(c.ctr) },
+    { key: 'cpm',           label: 'CPM',          fmt: (c) => fmtMoney(c.cpm) },
   ];
   if (!campaigns.length) return <p className="text-sm text-gray-400 py-6 text-center">Aucune campagne.</p>;
   return (
@@ -275,41 +283,49 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     });
   }, [paidCampaigns, sortKey, sortDir]);
 
-  // Per-campaign CPI evolution for line chart (top 8 by installs)
+  // Per-campaign CPI + CPI Engagement evolution for line charts (top 8 by installs)
   const campaignCpiLines = useMemo(() => {
-    if (!data || !paidCampaigns.length) return { points: [], keys: [] };
+    if (!data || !paidCampaigns.length) return { cpiPoints: [], engPoints: [], keys: [] };
 
-    const topCamps = [...paidCampaigns]
-      .sort((a, b) => b.installs - a.installs)
-      .slice(0, 8);
+    const topCamps = [...paidCampaigns].sort((a, b) => b.installs - a.installs).slice(0, 8);
     const campByToken = new Map(topCamps.map((c) => [c.token, c.name.replace(/UA_|Picta_?/gi, '').trim().slice(0, 20)]));
 
-    // Accumulate cost + installs per date × campaign
-    const acc = new Map<string, Map<string, { cost: number; installs: number }>>();
+    type CampDay = { cost: number; installs: number; engagement: number };
+    const acc = new Map<string, Map<string, CampDay>>();
     for (const r of data.daily) {
       const label = campByToken.get(r.campaignToken);
       if (!label) continue;
       if (!acc.has(r.date)) acc.set(r.date, new Map());
       const dayMap = acc.get(r.date)!;
-      const e = dayMap.get(label) ?? { cost: 0, installs: 0 };
-      e.cost     += r.cost;
-      e.installs += r.installs;
+      const e = dayMap.get(label) ?? { cost: 0, installs: 0, engagement: 0 };
+      e.cost       += r.cost;
+      e.installs   += r.installs;
+      e.engagement += r.engagement;
       dayMap.set(label, e);
     }
 
     const keys = [...campByToken.values()];
-    const points = Array.from(acc.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, dayMap]) => {
-        const pt: Record<string, string | number | null> = { displayDate: fmtDate(date) };
-        for (const key of keys) {
-          const e = dayMap.get(key);
-          pt[key] = e && e.installs > 0 ? +(e.cost / e.installs).toFixed(2) : null;
-        }
-        return pt;
-      });
+    const sorted = Array.from(acc.entries()).sort(([a], [b]) => a.localeCompare(b));
 
-    return { points, keys };
+    const cpiPoints = sorted.map(([date, dayMap]) => {
+      const pt: Record<string, string | number | null> = { displayDate: fmtDate(date) };
+      for (const key of keys) {
+        const e = dayMap.get(key);
+        pt[key] = e && e.installs > 0 ? +(e.cost / e.installs).toFixed(2) : null;
+      }
+      return pt;
+    });
+
+    const engPoints = sorted.map(([date, dayMap]) => {
+      const pt: Record<string, string | number | null> = { displayDate: fmtDate(date) };
+      for (const key of keys) {
+        const e = dayMap.get(key);
+        pt[key] = e && e.engagement > 0 ? +(e.cost / e.engagement).toFixed(2) : null;
+      }
+      return pt;
+    });
+
+    return { cpiPoints, engPoints, keys };
   }, [data, paidCampaigns]);
 
   if (loading) {
@@ -335,13 +351,14 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   };
 
   const kpis = [
-    { label: 'Coût total',   value: totals.cost,        prev: prevTotals?.cost,        display: `$${Number(totals.cost ?? 0).toFixed(0)}`,        lowerIsBetter: true  },
-    { label: 'Installs',     value: totals.installs,    prev: prevTotals?.installs,    display: fmtNum(totals.installs),             lowerIsBetter: false },
-    { label: 'CPI',          value: totals.cpi,         prev: prevTotals?.cpi,         display: totals.cpi > 0 ? fmtMoney(totals.cpi) : '—', lowerIsBetter: true },
-    { label: 'Clics',        value: totals.clicks,      prev: prevTotals?.clicks,      display: fmtNum(totals.clicks),               lowerIsBetter: false },
-    { label: 'CTR',          value: totals.ctr,         prev: prevTotals?.ctr,         display: fmtPct(totals.ctr),                  lowerIsBetter: false },
-    { label: 'Impressions',  value: totals.impressions, prev: prevTotals?.impressions, display: fmtNum(totals.impressions),          lowerIsBetter: false },
-    { label: 'CPM',          value: totals.cpm,         prev: prevTotals?.cpm,         display: fmtMoney(totals.cpm),                lowerIsBetter: true  },
+    { label: 'Coût total',        value: totals.cost,           prev: prevTotals?.cost,           display: `$${Number(totals.cost ?? 0).toFixed(0)}`, lowerIsBetter: true  },
+    { label: 'Installs',          value: totals.installs,       prev: prevTotals?.installs,       display: fmtNum(totals.installs),                   lowerIsBetter: false },
+    { label: 'CPI',               value: totals.cpi,            prev: prevTotals?.cpi,            display: totals.cpi > 0 ? fmtMoney(totals.cpi) : '—',           lowerIsBetter: true  },
+    { label: 'Engage. installs',  value: totals.engagement,     prev: prevTotals?.engagement,     display: fmtNum(totals.engagement),                 lowerIsBetter: false },
+    { label: 'CPI Engagement',    value: totals.cpiEngagement,  prev: prevTotals?.cpiEngagement,  display: totals.cpiEngagement > 0 ? fmtMoney(totals.cpiEngagement) : '—', lowerIsBetter: true },
+    { label: 'Clics',             value: totals.clicks,         prev: prevTotals?.clicks,         display: fmtNum(totals.clicks),                     lowerIsBetter: false },
+    { label: 'Impressions',       value: totals.impressions,    prev: prevTotals?.impressions,    display: fmtNum(totals.impressions),                lowerIsBetter: false },
+    { label: 'CPM',               value: totals.cpm,            prev: prevTotals?.cpm,            display: fmtMoney(totals.cpm),                      lowerIsBetter: true  },
   ];
 
   return (
@@ -405,7 +422,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         ))}
       </div>
 
-      {/* 2. Installs + Coût */}
+      {/* 2. Installs + Install Engagement */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <ChartCard title="Installs quotidiennes" subtitle="Volume d'installs attribuées via Adjust">
           <ResponsiveContainer width="100%" height={220}>
@@ -419,20 +436,20 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Coût journalier" subtitle="Budget consommé par jour (USD)">
+        <ChartCard title="Install Engagement" subtitle="Événement install_engagement par jour">
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={dailyPoints} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+            <BarChart data={dailyPoints} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
               <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
-              <YAxis tickFormatter={(v) => `$${v.toFixed(0)}`} {...AXIS_COMMON} width={46} />
-              <Tooltip content={<MoneyTooltip />} />
-              <Line type="monotone" dataKey="cost" name="Coût ($)" stroke="#f97316" strokeWidth={2} dot={false} />
-            </LineChart>
+              <YAxis {...AXIS_COMMON} width={35} />
+              <Tooltip content={<NumTooltip />} />
+              <Bar dataKey="engagement" name="Engagement" fill="#10b981" radius={[3, 3, 0, 0]} />
+            </BarChart>
           </ResponsiveContainer>
         </ChartCard>
       </div>
 
-      {/* 3. CPI + CTR */}
+      {/* 3. CPI + CPI Engagement */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <ChartCard title="CPI (Coût par install)" subtitle="Évolution du coût d'acquisition">
           <ResponsiveContainer width="100%" height={220}>
@@ -446,39 +463,61 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="CTR (Click-through rate)" subtitle="Qualité des annonces — clics / impressions">
+        <ChartCard title="CPI Engagement" subtitle="Coût par install_engagement — qualité des installs">
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={dailyPoints} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
               <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
-              <YAxis tickFormatter={(v) => `${(v * 100).toFixed(2)}%`} {...AXIS_COMMON} width={52} />
-              <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`${(v * 100).toFixed(3)}%`, 'CTR'] : '—'} />
-              <Line type="monotone" dataKey="ctr" name="CTR" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+              <YAxis tickFormatter={(v) => `$${(v as number).toFixed(1)}`} {...AXIS_COMMON} width={46} />
+              <Tooltip content={<MoneyTooltip />} />
+              <Line type="monotone" dataKey="cpiEngagement" name="CPI Engage. ($)" stroke="#8b5cf6" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
       </div>
 
-      {/* 4. CPI par campagne — évolution */}
-      <ChartCard title="CPI par campagne — évolution" subtitle="Coût par install quotidien · campagnes actives uniquement (hors organic/direct)">
-        {campaignCpiLines.keys.length === 0 ? (
-          <p className="text-sm text-gray-400 py-6 text-center">Aucune campagne payante avec installs sur cette période.</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={campaignCpiLines.points} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
-              <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
-              <YAxis tickFormatter={(v) => `$${Number(v).toFixed(1)}`} {...AXIS_COMMON} width={46} />
-              <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`$${v.toFixed(2)}`, 'CPI'] : '—'} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              {campaignCpiLines.keys.map((key, i) => (
-                <Line key={key} type="monotone" dataKey={key} stroke={COLORS[i % COLORS.length]}
-                  strokeWidth={2} dot={false} connectNulls />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        )}
-      </ChartCard>
+      {/* 4. CPI par campagne + CPI Engagement par campagne */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <ChartCard title="CPI par campagne" subtitle="Coût par install · campagnes actives">
+          {campaignCpiLines.keys.length === 0 ? (
+            <p className="text-sm text-gray-400 py-6 text-center">Aucune campagne payante avec installs.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={campaignCpiLines.cpiPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+                <YAxis tickFormatter={(v) => `$${Number(v).toFixed(1)}`} {...AXIS_COMMON} width={46} />
+                <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`$${v.toFixed(2)}`, 'CPI'] : '—'} />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                {campaignCpiLines.keys.map((key, i) => (
+                  <Line key={key} type="monotone" dataKey={key} stroke={COLORS[i % COLORS.length]}
+                    strokeWidth={2} dot={false} connectNulls />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="CPI Engagement par campagne" subtitle="Coût par install_engagement · campagnes actives">
+          {campaignCpiLines.keys.length === 0 ? (
+            <p className="text-sm text-gray-400 py-6 text-center">Aucune campagne payante avec installs.</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <LineChart data={campaignCpiLines.engPoints} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
+                <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
+                <YAxis tickFormatter={(v) => `$${Number(v).toFixed(1)}`} {...AXIS_COMMON} width={46} />
+                <Tooltip formatter={(v: unknown) => typeof v === 'number' ? [`$${v.toFixed(2)}`, 'CPI Eng.'] : '—'} />
+                <Legend wrapperStyle={{ fontSize: 10 }} />
+                {campaignCpiLines.keys.map((key, i) => (
+                  <Line key={key} type="monotone" dataKey={key} stroke={COLORS[i % COLORS.length]}
+                    strokeWidth={2} dot={false} connectNulls />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+      </div>
 
       {/* 5. Campaign table */}
       <ChartCard title="Tableau par campagne" subtitle="Cliquer sur un en-tête pour trier">
