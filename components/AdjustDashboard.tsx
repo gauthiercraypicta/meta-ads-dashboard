@@ -225,6 +225,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const [data,        setData]        = useState<AdjustResponse | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
+  const [rawResponse, setRawResponse] = useState<string | null>(null);
   const [granularity, setGranularity] = useState<Granularity>('day');
   const [sortKey,     setSortKey]     = useState<SortKey>('cost');
   const [sortDir,     setSortDir]     = useState<SortDir>('desc');
@@ -232,10 +233,13 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setRawResponse(null);
     try {
       const res = await fetch(`/api/adjust?date_preset=${datePreset}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const text = await res.text();
+      setRawResponse(text);
+      if (!res.ok) throw new Error(`HTTP ${res.status} — ${text.slice(0, 300)}`);
+      const json = JSON.parse(text);
       if ('error' in json && typeof json.error === 'string') throw new Error(json.error);
       setData(json as AdjustResponse);
     } catch (e) {
@@ -287,6 +291,9 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   const { totals, prevTotals } = data!;
 
+  // Detect empty response (env vars set but Adjust returned no data)
+  const isEmpty = !error && data!.campaigns.length === 0 && totals.cost === 0;
+
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
     else { setSortKey(key); setSortDir('desc'); }
@@ -300,7 +307,6 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     { label: 'CTR',          value: totals.ctr,         prev: prevTotals?.ctr,         display: fmtPct(totals.ctr),                  lowerIsBetter: false },
     { label: 'Impressions',  value: totals.impressions, prev: prevTotals?.impressions, display: fmtNum(totals.impressions),          lowerIsBetter: false },
     { label: 'CPM',          value: totals.cpm,         prev: prevTotals?.cpm,         display: fmtMoney(totals.cpm),                lowerIsBetter: true  },
-    { label: 'Sessions',     value: totals.sessions,    prev: prevTotals?.sessions,    display: fmtNum(totals.sessions),             lowerIsBetter: false },
   ];
 
   return (
@@ -318,6 +324,27 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
             </p>
           </div>
           <button onClick={fetchData} className="text-xs font-medium underline hover:no-underline flex-shrink-0">Réessayer</button>
+        </div>
+      )}
+
+      {/* Empty state — réponse reçue mais sans données */}
+      {isEmpty && (
+        <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 space-y-3">
+          <p className="font-semibold text-red-800 text-sm">⚠️ Adjust a répondu mais sans données</p>
+          <p className="text-red-700 text-xs">Les env vars sont lues mais l&apos;API retourne 0 campagnes. Causes possibles :</p>
+          <ul className="text-red-700 text-xs list-disc pl-4 space-y-0.5">
+            <li><strong>App token incorrect</strong> — vérifie <code className="bg-red-100 px-1 rounded">ADJUST_APP_TOKENS</code> dans Vercel (Settings → App → App Token, 12 car.)</li>
+            <li><strong>Aucune donnée sur la période</strong> — essaie <code className="bg-red-100 px-1 rounded">last_90d</code></li>
+            <li><strong>Format de réponse inattendu</strong> — voir le JSON brut ci-dessous</li>
+          </ul>
+          {rawResponse && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-red-700 font-medium hover:underline">Voir la réponse brute de /api/adjust</summary>
+              <pre className="mt-2 bg-red-100 rounded p-3 overflow-x-auto text-[10px] text-red-900 max-h-48">
+                {(() => { try { return JSON.stringify(JSON.parse(rawResponse), null, 2); } catch { return rawResponse; } })()}
+              </pre>
+            </details>
+          )}
         </div>
       )}
 
