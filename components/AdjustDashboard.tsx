@@ -218,7 +218,8 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: { campaigns: Adj
           {campaigns.map((camp, i) => (
             <tr key={camp.token} className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 === 0 ? '' : 'bg-gray-50/40'}`}>
               {cols.map((c) => (
-                <td key={c.key} className={`px-3 py-2.5 font-mono text-gray-700 ${c.key === 'name' ? 'font-sans text-gray-800 font-medium max-w-[200px] truncate' : ''}`}>
+                <td key={c.key} title={c.key === 'name' ? camp.name : undefined}
+                  className={`px-3 py-2.5 font-mono text-gray-700 ${c.key === 'name' ? 'font-sans text-gray-800 font-medium max-w-xs truncate' : 'whitespace-nowrap'}`}>
                   {c.fmt(camp)}
                 </td>
               ))}
@@ -271,9 +272,9 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return granularity === 'week' ? toWeekly(pts) : pts;
   }, [data, granularity]);
 
-  // Only paid campaigns (cost > 0) with at least one install
+  // Only paid campaigns (cost > 0) — include even if installs = 0
   const paidCampaigns = useMemo(() =>
-    data ? data.campaigns.filter((c) => c.cost > 0 && c.installs > 0) : []
+    data ? data.campaigns.filter((c) => c.cost > 0) : []
   , [data]);
 
   const sortedCampaigns = useMemo(() => {
@@ -288,7 +289,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     if (!data || !paidCampaigns.length) return { cpiPoints: [], engPoints: [], keys: [] };
 
     const topCamps = [...paidCampaigns].sort((a, b) => b.installs - a.installs).slice(0, 8);
-    const campByToken = new Map(topCamps.map((c) => [c.token, c.name.replace(/UA_|Picta_?/gi, '').trim().slice(0, 20)]));
+    const campByToken = new Map(topCamps.map((c) => [c.token, c.name.replace(/^Picta_/i, '').trim().slice(0, 30)]));
 
     type CampDay = { cost: number; installs: number; engagement: number };
     const acc = new Map<string, Map<string, CampDay>>();
