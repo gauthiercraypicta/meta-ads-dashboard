@@ -209,22 +209,49 @@ function PctTooltip({ active, payload, label }: TtProps) {
   );
 }
 
-// Legend with click-to-toggle for campaign charts
+// Pill-style legend for campaign charts — active campaigns are solid colored pills,
+// hidden ones become outlined "+ Restore" pills on the left
 function CampLegend({ keys, hidden, onToggle, colors }: {
   keys: string[];
   hidden: Set<string>;
   onToggle: (k: string) => void;
   colors: string[];
 }) {
+  const visibleKeys = keys.filter((k) => !hidden.has(k));
+  const hiddenKeys  = keys.filter((k) =>  hidden.has(k));
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 justify-center px-2">
-      {keys.map((key, i) => {
-        const isHidden = hidden.has(key);
+    <div className="flex flex-wrap gap-2 mt-4 items-center px-1">
+      {/* Outlined pills for hidden campaigns (click to restore) */}
+      {hiddenKeys.map((key) => {
+        const i = keys.indexOf(key);
+        const color = colors[i % colors.length];
         return (
-          <button key={key} onClick={() => onToggle(key)} title={key}
-            className={`flex items-center gap-1.5 text-[10px] transition-opacity hover:opacity-75 ${isHidden ? 'opacity-25' : 'opacity-100'}`}>
-            <span className="inline-block w-4 h-0.5 rounded shrink-0" style={{ backgroundColor: colors[i % colors.length] }} />
-            <span className={`max-w-[130px] truncate ${isHidden ? 'line-through text-gray-400' : 'text-gray-700'}`}>{key}</span>
+          <button key={key} onClick={() => onToggle(key)} title={`Afficher ${key}`}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium border-2 bg-white transition-all hover:bg-gray-50"
+            style={{ borderColor: color, color }}>
+            <span className="text-base leading-none" style={{ color }}>+</span>
+            <span className="max-w-[110px] truncate">{key}</span>
+          </button>
+        );
+      })}
+
+      {/* Separator dot when both sections have items */}
+      {hiddenKeys.length > 0 && visibleKeys.length > 0 && (
+        <span className="text-gray-300 text-xs select-none">·</span>
+      )}
+
+      {/* Solid pills for visible campaigns (click to hide) */}
+      {visibleKeys.map((key) => {
+        const i = keys.indexOf(key);
+        const color = colors[i % colors.length];
+        return (
+          <button key={key} onClick={() => onToggle(key)} title={`Masquer ${key}`}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold text-white transition-all hover:opacity-80"
+            style={{ backgroundColor: color }}>
+            {/* Line style indicator */}
+            <span className="inline-block w-4 h-px rounded" style={{ backgroundColor: 'rgba(255,255,255,0.7)' }} />
+            <span className="max-w-[110px] truncate">{key}</span>
+            <span className="opacity-70 leading-none text-sm">×</span>
           </button>
         );
       })}
