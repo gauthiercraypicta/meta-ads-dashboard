@@ -165,7 +165,7 @@ function KpiCard({ label, value, prevValue, display, lowerIsBetter = false }: { 
 
 // Tooltip type that matches recharts payload shape (readonly to match recharts ContentType)
 interface TtItem { name: string; value: number | null; color: string; dataKey: string }
-interface TtProps { active?: boolean; payload?: readonly TtItem[]; label?: string }
+interface TtProps { active?: boolean; payload?: readonly TtItem[]; label?: string | number }
 
 function MoneyTooltip({ active, payload, label }: TtProps) {
   if (!active || !payload?.length) return null;
