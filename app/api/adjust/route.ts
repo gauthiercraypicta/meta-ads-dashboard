@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { withCache } from '@/lib/apiCache';
 import type { AdjustDailyRow, AdjustCampaignSummary, AdjustTotals, AdjustResponse } from '@/types/adjust';
 
-const TTL        = 5 * 60 * 1000;
+const TTL        = 30 * 60 * 1000;
 const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/report';
 
 // install_engagement metric ID from filters_data — belongs in metrics= not event_kpis[]
