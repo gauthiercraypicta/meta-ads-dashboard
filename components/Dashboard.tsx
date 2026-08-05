@@ -37,6 +37,7 @@ const CreativeDecayCurve        = dynamic(() => import('./charts/CreativeDecayCu
 const ImpressionsChart          = dynamic(() => import('./charts/ImpressionsChart'),          { ssr: false });
 const AppPicta                  = dynamic(() => import('./AppPicta'),                          { ssr: false });
 const AdjustDashboard           = dynamic(() => import('./AdjustDashboard'),                    { ssr: false });
+const DemographicsDashboard     = dynamic(() => import('./DemographicsDashboard'),              { ssr: false });
 
 import { Campaign, AdSet, ProcessedCampaign, ProcessedAdSet, ProcessedMetrics, InsightData } from '@/types/meta';
 import { processInsights, computeTotals, getStatusColor } from '@/lib/metaHelpers';
@@ -195,7 +196,7 @@ export default function Dashboard() {
   const [loading, setLoading]         = useState(true);
   const [errors, setErrors]           = useState<FetchErrors>({});
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'impressions' | 'app' | 'adjust' | 'veille' | 'scorecard'>('apercu');
+  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'impressions' | 'app' | 'adjust' | 'veille' | 'scorecard' | 'demographics'>('apercu');
   const [activeTab, setActiveTab]     = useState<'campaigns' | 'adsets'>('campaigns');
   const [refreshKey, setRefreshKey]   = useState(0);
   const [datePreset, setDatePreset]   = useState<DatePreset>('last_30d');
@@ -808,7 +809,8 @@ export default function Dashboard() {
             { key: 'app',         label: 'App Picta',    icon: '📲' },
             { key: 'adjust',      label: 'Adjust',       icon: '📡' },
             { key: 'veille',      label: 'Veille',       icon: '🔍' },
-            { key: 'scorecard',   label: 'Scorecard',    icon: '🎯' },
+            { key: 'scorecard',     label: 'Scorecard',    icon: '🎯' },
+            { key: 'demographics',  label: 'Socio-démo',   icon: '👥' },
           ] as { key: typeof mainTab; label: string; icon: string }[]).map((tab) => (
             <button
               key={tab.key}
@@ -861,6 +863,11 @@ export default function Dashboard() {
       {/* ═══ ONGLET SCORECARD ═══ */}
       {mainTab === 'scorecard' && (
         <ScorecardAcquisition datePreset={datePreset} refreshKey={refreshKey} />
+      )}
+
+      {/* ═══ ONGLET SOCIO-DÉMO ═══ */}
+      {mainTab === 'demographics' && (
+        <DemographicsDashboard />
       )}
 
       {/* ═══ ONGLET APERÇU ═══ */}
