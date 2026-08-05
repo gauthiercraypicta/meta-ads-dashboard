@@ -201,7 +201,9 @@ export default function DemographicsDashboard() {
     const map = new Map<string, { age: string; Homme: number; Femme: number; Autre: number }>();
     for (const r of rows) {
       const e = map.get(r.age) ?? { age: r.age, Homme: 0, Femme: 0, Autre: 0 };
-      if (r.gender in e) (e as Record<string, number>)[r.gender] += r.spend;
+      if      (r.gender === 'Homme') e.Homme += r.spend;
+      else if (r.gender === 'Femme') e.Femme += r.spend;
+      else                           e.Autre += r.spend;
       map.set(r.age, e);
     }
     return AGE_ORDER.filter((a) => map.has(a)).map((a) => map.get(a)!);
@@ -214,7 +216,9 @@ export default function DemographicsDashboard() {
     for (const r of rows) {
       if (!r.installs) continue;
       const e = map.get(r.age) ?? { age: r.age, Homme: 0, Femme: 0, Autre: 0 };
-      if (r.gender in e) (e as Record<string, number>)[r.gender] += r.installs;
+      if      (r.gender === 'Homme') e.Homme += r.installs;
+      else if (r.gender === 'Femme') e.Femme += r.installs;
+      else                           e.Autre += r.installs;
       map.set(r.age, e);
     }
     return AGE_ORDER.filter((a) => map.has(a)).map((a) => map.get(a)!);
