@@ -842,7 +842,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                         <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
                         <YAxis hide />
                         <Tooltip formatter={(v: unknown) => [fmt(Number(v)), title]} />
-                        <Bar dataKey="value" radius={[4, 4, 0, 0]} label={{ position: 'top', fontSize: 10, fill: '#374151', formatter: (v: number) => fmt(v) }}>
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]} label={{ position: 'top', fontSize: 10, fill: '#374151', formatter: (v: unknown) => fmt(Number(v)) }}>
                           {chartData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
                         </Bar>
                       </BarChart>
