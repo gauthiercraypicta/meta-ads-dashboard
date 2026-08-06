@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ReferenceLine,
+  Tooltip, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
 import type { AdjustResponse, AdjustDailyRow, AdjustCampaignSummary } from '@/types/adjust';
 
@@ -417,6 +417,39 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return { cpiPoints, engPoints, keys };
   }, [data, paidCampaigns]);
 
+  // ── Comparaison créatifs : Dog Poster / Print to Video / Generic ──────────
+  const CREATIVE_DEFS = [
+    { key: 'dog',     label: 'Dog Poster',      color: '#f97316', test: (n: string) => n.includes('dog') },
+    { key: 'ptv',     label: 'Print to Video',  color: '#8b5cf6', test: (n: string) => n.includes('print') || n.includes('ptv') },
+    { key: 'generic', label: 'Generic',          color: '#06b6d4', test: (n: string) => n.includes('generic') },
+  ];
+
+  const creativeGroups = useMemo(() => {
+    return CREATIVE_DEFS.map(({ key, label, color, test }) => {
+      const matched = paidCampaigns.filter((c) => test(c.name.toLowerCase()));
+      const cost        = matched.reduce((s, c) => s + c.cost, 0);
+      const installs    = matched.reduce((s, c) => s + c.installs, 0);
+      const clicks      = matched.reduce((s, c) => s + c.clicks, 0);
+      const impressions = matched.reduce((s, c) => s + c.impressions, 0);
+      const engagement  = matched.reduce((s, c) => s + c.engagement, 0);
+      return {
+        key, label, color,
+        count: matched.length,
+        campaigns: matched.map((c) => c.name),
+        cost,
+        installs,
+        clicks,
+        impressions,
+        engagement,
+        cpi:           installs    > 0 ? cost / installs    : 0,
+        cpiEngagement: engagement  > 0 ? cost / engagement  : 0,
+        ctr:           impressions > 0 ? clicks / impressions : 0,
+        cpm:           impressions > 0 ? (cost / impressions) * 1000 : 0,
+      };
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paidCampaigns]);
+
   const toggleCamp = useCallback((key: string) => {
     setHiddenCamps((prev) => {
       const next = new Set(prev);
@@ -716,6 +749,132 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       <ChartCard title="Tableau par campagne" subtitle="Cliquer sur un en-tête pour trier">
         <CampaignTable campaigns={sortedCampaigns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       </ChartCard>
+
+      {/* 7. Comparaison Dog Poster / Print to Video / Generic */}
+      {creativeGroups.some((g) => g.count > 0) && (() => {
+        // Best = lowest CPI / CPI Engagement, highest CTR
+        const withData = creativeGroups.filter((g) => g.count > 0);
+        const bestCpi     = Math.min(...withData.filter((g) => g.cpi > 0).map((g) => g.cpi));
+        const bestCpiEng  = Math.min(...withData.filter((g) => g.cpiEngagement > 0).map((g) => g.cpiEngagement));
+        const bestCtr     = Math.max(...withData.filter((g) => g.ctr > 0).map((g) => g.ctr));
+
+        const badge = (val: number, best: number, lowerBetter: boolean) => {
+          if (val === 0) return null;
+          const isWinner = lowerBetter ? val === best : val === best;
+          return isWinner
+            ? <span className="ml-1.5 text-[9px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">✓ best</span>
+            : null;
+        };
+
+        const metricsForChart = (key: 'cpi' | 'cpiEngagement' | 'ctr') =>
+          creativeGroups.map((g) => ({ name: g.label, value: g[key], fill: g.color }));
+
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-gray-900">Comparaison créatifs</h2>
+              <span className="text-xs text-gray-400">Dog Poster · Print to Video · Generic</span>
+            </div>
+
+            {/* KPI table */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/50">
+                      <th className="px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wide">Métrique</th>
+                      {creativeGroups.map((g) => (
+                        <th key={g.key} className="px-4 py-3 text-center font-bold text-gray-800 whitespace-nowrap">
+                          <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ backgroundColor: g.color }} />
+                          {g.label}
+                          {g.count > 0
+                            ? <span className="ml-1 font-normal text-gray-400 text-[10px]">({g.count} camp.)</span>
+                            : <span className="ml-1 font-normal text-gray-300 text-[10px]">(aucune)</span>}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { label: 'Dépenses', fmt: (g: typeof creativeGroups[0]) => g.cost > 0 ? `$${Math.round(g.cost)}` : '—', highlight: false, lowerBetter: false },
+                      { label: 'Installs',  fmt: (g: typeof creativeGroups[0]) => fmtNum(g.installs), highlight: false, lowerBetter: false },
+                      { label: 'CPI', fmt: (g: typeof creativeGroups[0]) => g.cpi > 0 ? fmtMoney(g.cpi) : '—', highlight: true, lowerBetter: true, best: bestCpi, key: 'cpi' as const },
+                      { label: 'Engagement', fmt: (g: typeof creativeGroups[0]) => fmtNum(g.engagement), highlight: false, lowerBetter: false },
+                      { label: 'CPI Engagement', fmt: (g: typeof creativeGroups[0]) => g.cpiEngagement > 0 ? fmtMoney(g.cpiEngagement) : '—', highlight: true, lowerBetter: true, best: bestCpiEng, key: 'cpiEngagement' as const },
+                      { label: 'CTR', fmt: (g: typeof creativeGroups[0]) => g.ctr > 0 ? fmtPct(g.ctr) : '—', highlight: true, lowerBetter: false, best: bestCtr, key: 'ctr' as const },
+                      { label: 'CPM', fmt: (g: typeof creativeGroups[0]) => g.cpm > 0 ? fmtMoney(g.cpm) : '—', highlight: false, lowerBetter: true },
+                      { label: 'Impressions', fmt: (g: typeof creativeGroups[0]) => fmtNum(g.impressions), highlight: false, lowerBetter: false },
+                    ].map((row, ri) => (
+                      <tr key={row.label} className={`border-b border-gray-50 ${ri % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
+                        <td className="px-4 py-2.5 font-semibold text-gray-600 whitespace-nowrap">{row.label}</td>
+                        {creativeGroups.map((g) => {
+                          const val = row.key ? g[row.key] : 0;
+                          const isWinner = row.highlight && row.best !== undefined && val > 0 && val === row.best;
+                          return (
+                            <td key={g.key} className={`px-4 py-2.5 text-center font-mono whitespace-nowrap ${isWinner ? 'font-bold text-green-700 bg-green-50' : 'text-gray-700'}`}>
+                              {row.fmt(g)}
+                              {isWinner && badge(val, row.best!, row.lowerBetter)}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* 3 mini bar charts: CPI / CPI Engagement / CTR */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[
+                { title: 'CPI', dataKey: 'cpi' as const, fmt: (v: number) => `$${v.toFixed(2)}`, note: 'plus bas = meilleur' },
+                { title: 'CPI Engagement', dataKey: 'cpiEngagement' as const, fmt: (v: number) => `$${v.toFixed(2)}`, note: 'plus bas = meilleur' },
+                { title: 'CTR', dataKey: 'ctr' as const, fmt: (v: number) => `${(v * 100).toFixed(2)}%`, note: 'plus haut = meilleur' },
+              ].map(({ title, dataKey, fmt, note }) => {
+                const chartData = metricsForChart(dataKey).filter((d) => d.value > 0);
+                if (!chartData.length) return null;
+                return (
+                  <div key={title} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                    <p className="text-xs font-semibold text-gray-800 mb-0.5">{title}</p>
+                    <p className="text-[10px] text-gray-400 mb-3">{note}</p>
+                    <ResponsiveContainer width="100%" height={120}>
+                      <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
+                        <YAxis hide />
+                        <Tooltip formatter={(v: unknown) => [fmt(Number(v)), title]} />
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]} label={{ position: 'top', fontSize: 10, fill: '#374151', formatter: (v: number) => fmt(v) }}>
+                          {chartData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Campaign list per group */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {creativeGroups.map((g) => (
+                <div key={g.key} className="bg-white rounded-xl border border-gray-200 p-4">
+                  <p className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: g.color }} />
+                    {g.label}
+                    <span className="font-normal text-gray-400">({g.count})</span>
+                  </p>
+                  {g.campaigns.length === 0
+                    ? <p className="text-[11px] text-gray-300">Aucune campagne détectée</p>
+                    : <ul className="space-y-0.5">
+                        {g.campaigns.map((name) => (
+                          <li key={name} className="text-[10px] text-gray-500 truncate" title={name}>· {name.replace(/^Picta_?/i, '')}</li>
+                        ))}
+                      </ul>
+                  }
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );
