@@ -333,7 +333,11 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const [granularity, setGranularity] = useState<Granularity>('day');
   const [sortKey,     setSortKey]     = useState<SortKey>('cost');
   const [sortDir,     setSortDir]     = useState<SortDir>('desc');
-  const [hiddenCamps, setHiddenCamps] = useState<Set<string>>(new Set());
+  const [hiddenCamps,      setHiddenCamps]      = useState<Set<string>>(new Set());
+  const [selectedCampToken, setSelectedCampToken] = useState<string | null>(null);
+  const [metaDailyRaw,     setMetaDailyRaw]     = useState<Array<{ date: string; campaignId: string; campaignName: string; installs: number; engagement: number }> | null>(null);
+  const [metaLoading,      setMetaLoading]      = useState(false);
+  const [metaError,        setMetaError]        = useState<string | null>(null);
 
   // Tracks which campaign line is currently hovered — read in tooltip render
   const hoveredCampRef = useRef<string | null>(null);
@@ -361,6 +365,26 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   }, [datePreset]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Fetch Meta daily installs whenever datePreset changes
+  useEffect(() => {
+    setMetaLoading(true);
+    setMetaError(null);
+    setMetaDailyRaw(null);
+    fetch(`/api/meta-daily-installs?date_preset=${datePreset}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.error) setMetaError(j.error);
+        else setMetaDailyRaw(j.rows ?? []);
+      })
+      .catch((e: unknown) => setMetaError(e instanceof Error ? e.message : 'Erreur Meta'))
+      .finally(() => setMetaLoading(false));
+  }, [datePreset]);
+
+  // Auto-select first paid campaign when the list changes (new datePreset)
+  useEffect(() => {
+    setSelectedCampToken(null);
+  }, [datePreset]);
 
   const dailyPoints = useMemo<DailyPoint[]>(() => {
     if (!data) return [];
@@ -417,36 +441,32 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return { cpiPoints, engPoints, keys };
   }, [data, paidCampaigns]);
 
-  // ── Daily installs × engagement per campaign ──────────────────────────────
-  const dailyCampTableData = useMemo(() => {
-    if (!data) return { rows: [], camps: [] as typeof paidCampaigns };
-    const camps = paidCampaigns.slice(0, 12);
-    const campByToken = new Map(camps.map((c) => [c.token, c]));
+  // ── Meta vs Adjust comparison for a single campaign ───────────────────────
+  const comparisonData = useMemo(() => {
+    if (!data || !metaDailyRaw || !selectedCampToken) return [];
+    const adjRows = data.daily.filter((r) => r.campaignToken === selectedCampToken);
+    // campaignToken IS the Meta campaign ID (confirmed by /^\d+$/ filter on paidCampaigns)
+    const metaRows = metaDailyRaw.filter((r) => r.campaignId === selectedCampToken);
 
-    const dateMap = new Map<string, Map<string, { installs: number; engagement: number }>>();
-    for (const r of data.daily) {
-      const camp = campByToken.get(r.campaignToken);
-      if (!camp) continue;
-      if (!dateMap.has(r.date)) dateMap.set(r.date, new Map());
-      const dayMap = dateMap.get(r.date)!;
-      const e = dayMap.get(camp.token) ?? { installs: 0, engagement: 0 };
-      e.installs   += r.installs;
-      e.engagement += r.engagement;
-      dayMap.set(camp.token, e);
-    }
+    const dates = [...new Set([...adjRows.map((r) => r.date), ...metaRows.map((r) => r.date)])]
+      .sort((a, b) => b.localeCompare(a));
 
-    const rows = Array.from(dateMap.entries())
-      .sort(([a], [b]) => b.localeCompare(a))
-      .map(([date, dayMap]) => {
-        const cells = camps.map((c) => dayMap.get(c.token) ?? { installs: 0, engagement: 0 });
-        const totalInstalls   = cells.reduce((s, v) => s + v.installs, 0);
-        const totalEngagement = cells.reduce((s, v) => s + v.engagement, 0);
-        return { date, displayDate: fmtDate(date), cells, totalInstalls, totalEngagement };
-      })
-      .filter((r) => r.totalInstalls > 0);
+    return dates.map((date) => {
+      const adjDay = adjRows
+        .filter((r) => r.date === date)
+        .reduce((s, r) => ({ installs: s.installs + r.installs, engagement: s.engagement + r.engagement }), { installs: 0, engagement: 0 });
+      const metaDay = metaRows
+        .filter((r) => r.date === date)
+        .reduce((s, r) => ({ installs: s.installs + r.installs, engagement: s.engagement + r.engagement }), { installs: 0, engagement: 0 });
 
-    return { rows, camps };
-  }, [data, paidCampaigns]);
+      const iGap    = adjDay.installs   - metaDay.installs;
+      const iGapPct = metaDay.installs   > 0 ? (iGap / metaDay.installs) * 100   : null;
+      const eGap    = adjDay.engagement  - metaDay.engagement;
+      const eGapPct = metaDay.engagement > 0 ? (eGap / metaDay.engagement) * 100 : null;
+
+      return { date, displayDate: fmtDate(date), adjInstalls: adjDay.installs, metaInstalls: metaDay.installs, iGap, iGapPct, adjEngagement: adjDay.engagement, metaEngagement: metaDay.engagement, eGap, eGapPct };
+    }).filter((r) => r.adjInstalls > 0 || r.metaInstalls > 0 || r.adjEngagement > 0 || r.metaEngagement > 0);
+  }, [data, metaDailyRaw, selectedCampToken]);
 
   // ── Comparaison créatifs : Dog Poster / Print to Video / Generic ──────────
   const CREATIVE_DEFS = [
@@ -781,72 +801,118 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         <CampaignTable campaigns={sortedCampaigns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       </ChartCard>
 
-      {/* 7. Daily installs × engagement per campaign */}
-      {dailyCampTableData.rows.length > 0 && (
-        <ChartCard title="Comparatif journalier par campagne" subtitle="App Installs · App Install Engagement (install_engagement_events) — données Adjust">
-          <div className="overflow-x-auto -mx-1">
-            <table className="min-w-full text-xs border-collapse">
-              <thead>
-                <tr className="border-b-2 border-gray-200">
-                  <th className="text-left py-2 pr-4 text-gray-500 font-semibold whitespace-nowrap sticky left-0 bg-white z-10">Date</th>
-                  {dailyCampTableData.camps.map((c, i) => (
-                    <th key={c.token} colSpan={2} className="text-center py-2 px-3 font-semibold border-l border-gray-100" style={{ color: COLORS[i % COLORS.length] }}>
-                      <span className="block truncate max-w-[130px] mx-auto" title={c.name}>
-                        {c.name.replace(/^Picta[_\s]*/i, '').slice(0, 22)}
-                      </span>
-                    </th>
-                  ))}
-                  <th colSpan={2} className="text-center py-2 px-3 font-bold text-gray-700 border-l border-gray-300">Total</th>
-                </tr>
-                <tr className="border-b border-gray-100 bg-gray-50/70">
-                  <th className="sticky left-0 bg-gray-50 py-1.5" />
-                  {dailyCampTableData.camps.map((c) => (
-                    <React.Fragment key={c.token}>
-                      <th className="text-right py-1.5 px-2 text-[10px] text-gray-400 font-medium border-l border-gray-100 whitespace-nowrap">Installs</th>
-                      <th className="text-right py-1.5 px-2 text-[10px] text-gray-400 font-medium whitespace-nowrap">Engmt</th>
-                    </React.Fragment>
-                  ))}
-                  <th className="text-right py-1.5 px-2 text-[10px] text-gray-600 font-semibold border-l border-gray-300 whitespace-nowrap">Installs</th>
-                  <th className="text-right py-1.5 px-2 text-[10px] text-gray-600 font-semibold whitespace-nowrap">Engmt</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {dailyCampTableData.rows.map((row) => {
-                  const totRate = row.totalInstalls > 0 ? row.totalEngagement / row.totalInstalls : 0;
-                  const totCls  = row.totalEngagement === 0 ? 'text-gray-300' : totRate >= 0.6 ? 'text-green-600 font-semibold' : totRate >= 0.4 ? 'text-orange-500 font-semibold' : 'text-red-500 font-semibold';
-                  return (
-                    <tr key={row.date} className="hover:bg-blue-50/20 transition-colors">
-                      <td className="py-2 pr-4 font-medium text-gray-600 sticky left-0 bg-white whitespace-nowrap z-10">{row.displayDate}</td>
-                      {row.cells.map((v, i) => {
-                        const rate   = v.installs > 0 ? v.engagement / v.installs : 0;
-                        const engCls = v.engagement === 0 ? 'text-gray-200' : rate >= 0.6 ? 'text-green-600' : rate >= 0.4 ? 'text-orange-500' : 'text-red-500';
-                        return (
-                          <React.Fragment key={dailyCampTableData.camps[i].token}>
-                            <td className="py-2 px-2 text-right font-mono text-gray-700 tabular-nums border-l border-gray-100">
-                              {v.installs > 0 ? v.installs : <span className="text-gray-200">—</span>}
-                            </td>
-                            <td className={`py-2 px-2 text-right font-mono tabular-nums ${engCls}`}>
-                              {v.engagement > 0
-                                ? <>{v.engagement}<span className="text-[9px] ml-0.5 opacity-60">({Math.round(rate * 100)}%)</span></>
-                                : <span className="text-gray-200">—</span>}
-                            </td>
-                          </React.Fragment>
-                        );
-                      })}
-                      <td className="py-2 px-2 text-right font-mono font-bold text-gray-800 tabular-nums border-l border-gray-300">
-                        {row.totalInstalls > 0 ? row.totalInstalls : '—'}
-                      </td>
-                      <td className={`py-2 px-2 text-right font-mono tabular-nums ${totCls}`}>
-                        {row.totalEngagement > 0
-                          ? <>{row.totalEngagement}<span className="text-[9px] ml-0.5 opacity-60">({Math.round(totRate * 100)}%)</span></>
-                          : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      {/* 7. Meta vs Adjust daily gap per campaign */}
+      {paidCampaigns.length > 0 && (
+        <ChartCard
+          title="Gap Meta vs Adjust par campagne"
+          subtitle="App Installs · App Install Engagement — comparaison quotidienne"
+        >
+          {/* Campaign selector */}
+          <div className="flex flex-wrap items-center gap-3 mb-5">
+            <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Campagne :</label>
+            <select
+              value={selectedCampToken ?? ''}
+              onChange={(e) => setSelectedCampToken(e.target.value || null)}
+              className="flex-1 min-w-[200px] border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 truncate"
+            >
+              <option value="">— Choisir une campagne —</option>
+              {paidCampaigns.map((c) => (
+                <option key={c.token} value={c.token}>{c.name}</option>
+              ))}
+            </select>
+            {metaLoading && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Chargement Meta…
+              </span>
+            )}
+            {metaError && (
+              <span className="text-xs text-red-500 bg-red-50 border border-red-200 rounded px-2 py-1" title={metaError}>
+                ⚠ Erreur Meta
+              </span>
+            )}
           </div>
+
+          {/* Legend */}
+          <div className="flex flex-wrap gap-3 mb-4 text-[10px] text-gray-400">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Adjust</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-violet-500 inline-block" /> Meta</span>
+            <span>Écart = Adjust − Meta · <span className="text-green-600 font-medium">vert &lt;10%</span> · <span className="text-orange-500 font-medium">orange 10–30%</span> · <span className="text-red-500 font-medium">rouge &gt;30%</span></span>
+          </div>
+
+          {!selectedCampToken ? (
+            <p className="text-sm text-gray-400 text-center py-8">Sélectionner une campagne ci-dessus.</p>
+          ) : comparisonData.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">
+              {metaLoading ? 'Chargement des données Meta…' : 'Aucune donnée pour cette campagne sur la période.'}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-xs border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-gray-200">
+                    <th className="text-left py-2 pr-4 text-gray-500 font-semibold sticky left-0 bg-white z-10 whitespace-nowrap">Date</th>
+                    <th colSpan={3} className="text-center py-2 px-3 font-semibold text-blue-600 border-l border-gray-200">App Installs</th>
+                    <th colSpan={3} className="text-center py-2 px-3 font-semibold text-violet-600 border-l border-gray-200">App Install Engagement</th>
+                  </tr>
+                  <tr className="border-b border-gray-100 bg-gray-50/70 text-[10px] text-gray-400">
+                    <th className="sticky left-0 bg-gray-50 py-1.5" />
+                    <th className="text-right py-1.5 px-2 border-l border-gray-200 whitespace-nowrap font-medium text-blue-500">Adjust</th>
+                    <th className="text-right py-1.5 px-2 whitespace-nowrap font-medium text-violet-500">Meta</th>
+                    <th className="text-right py-1.5 px-2 whitespace-nowrap font-semibold text-gray-600">Écart</th>
+                    <th className="text-right py-1.5 px-2 border-l border-gray-200 whitespace-nowrap font-medium text-blue-500">Adjust</th>
+                    <th className="text-right py-1.5 px-2 whitespace-nowrap font-medium text-violet-500">Meta</th>
+                    <th className="text-right py-1.5 px-2 whitespace-nowrap font-semibold text-gray-600">Écart</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {comparisonData.map((row) => {
+                    const iCls = row.iGapPct === null ? 'text-gray-400'
+                      : Math.abs(row.iGapPct) < 10 ? 'text-green-600 font-semibold'
+                      : Math.abs(row.iGapPct) < 30 ? 'text-orange-500 font-semibold'
+                      : 'text-red-500 font-semibold';
+                    const eCls = row.eGapPct === null ? 'text-gray-400'
+                      : Math.abs(row.eGapPct) < 10 ? 'text-green-600 font-semibold'
+                      : Math.abs(row.eGapPct) < 30 ? 'text-orange-500 font-semibold'
+                      : 'text-red-500 font-semibold';
+                    return (
+                      <tr key={row.date} className="hover:bg-blue-50/20 transition-colors">
+                        <td className="py-2 pr-4 font-medium text-gray-600 sticky left-0 bg-white whitespace-nowrap z-10">{row.displayDate}</td>
+                        {/* Installs */}
+                        <td className="py-2 px-2 text-right font-mono text-blue-700 tabular-nums border-l border-gray-200">
+                          {row.adjInstalls > 0 ? row.adjInstalls : <span className="text-gray-200">—</span>}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono text-violet-700 tabular-nums">
+                          {row.metaInstalls > 0 ? row.metaInstalls : <span className="text-gray-200">—</span>}
+                        </td>
+                        <td className={`py-2 px-2 text-right font-mono tabular-nums ${iCls}`}>
+                          {row.iGapPct !== null
+                            ? <>{row.iGap > 0 ? '+' : ''}{row.iGap}<span className="text-[9px] ml-0.5 opacity-70">({row.iGap > 0 ? '+' : ''}{row.iGapPct.toFixed(0)}%)</span></>
+                            : row.adjInstalls > 0 && row.metaInstalls === 0 ? <span className="text-gray-300">—</span>
+                            : '—'}
+                        </td>
+                        {/* Engagement */}
+                        <td className="py-2 px-2 text-right font-mono text-blue-700 tabular-nums border-l border-gray-200">
+                          {row.adjEngagement > 0 ? row.adjEngagement : <span className="text-gray-200">—</span>}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono text-violet-700 tabular-nums">
+                          {row.metaEngagement > 0 ? row.metaEngagement : <span className="text-gray-200">—</span>}
+                        </td>
+                        <td className={`py-2 px-2 text-right font-mono tabular-nums ${eCls}`}>
+                          {row.eGapPct !== null
+                            ? <>{row.eGap > 0 ? '+' : ''}{row.eGap}<span className="text-[9px] ml-0.5 opacity-70">({row.eGap > 0 ? '+' : ''}{row.eGapPct.toFixed(0)}%)</span></>
+                            : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </ChartCard>
       )}
 
