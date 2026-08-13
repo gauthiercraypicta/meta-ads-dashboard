@@ -101,9 +101,8 @@ export async function GET(req: Request) {
         date:         r.date_start,
         campaignId:   r.campaign_id,
         campaignName: r.campaign_name,
-        installs:     action(r.actions, 'mobile_app_install', 'omni_app_install'),
-        // fb_mobile_activate_app = app opens after install (Meta's "engagement" attribution)
-        engagement:   action(r.actions, 'fb_mobile_activate_app'),
+        installs:   action(r.actions, 'mobile_app_install', 'omni_app_install'),
+        engagement: action(r.actions, 'fb_mobile_install_engagement'),
       }));
 
       return { rows };
