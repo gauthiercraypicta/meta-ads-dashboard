@@ -805,7 +805,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       {paidCampaigns.length > 0 && (
         <ChartCard
           title="Gap Meta vs Adjust par campagne"
-          subtitle="Installs : mobile_app_install · Engagement : fb_mobile_install_engagement (Meta) vs install_engagement_events (Adjust)"
+          subtitle="Installs : mobile_app_install · Engagement : omni_activate_app (Meta) vs install_engagement_events (Adjust)"
         >
           {/* Campaign selector */}
           <div className="flex flex-wrap items-center gap-3 mb-5">
