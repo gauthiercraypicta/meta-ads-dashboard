@@ -97,6 +97,19 @@ export async function GET(req: Request) {
 
       const raw = await fetchAllPages(`${BASE}/${ACCOUNT}/insights?${params}`);
 
+      // Collect all unique action types with non-zero values for debugging
+      const actionTypeCounts = new Map<string, number>();
+      for (const r of raw) {
+        for (const a of r.actions ?? []) {
+          if (Number(a.value) > 0) {
+            actionTypeCounts.set(a.action_type, (actionTypeCounts.get(a.action_type) ?? 0) + Number(a.value));
+          }
+        }
+      }
+      const availableActionTypes = Object.fromEntries(
+        [...actionTypeCounts.entries()].sort((a, b) => b[1] - a[1])
+      );
+
       const rows: MetaDailyRow[] = raw.map((r) => ({
         date:         r.date_start,
         campaignId:   r.campaign_id,
@@ -105,7 +118,7 @@ export async function GET(req: Request) {
         engagement: action(r.actions, 'fb_mobile_install_engagement'),
       }));
 
-      return { rows };
+      return { rows, availableActionTypes };
     });
 
     return NextResponse.json(result);
