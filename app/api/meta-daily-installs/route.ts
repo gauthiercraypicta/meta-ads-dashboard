@@ -115,7 +115,7 @@ export async function GET(req: Request) {
         campaignId:   r.campaign_id,
         campaignName: r.campaign_name,
         installs:   action(r.actions, 'mobile_app_install', 'omni_app_install'),
-        engagement: action(r.actions, 'fb_mobile_install_engagement'),
+        engagement: action(r.actions, 'omni_activate_app', 'app_custom_event.fb_mobile_activate_app'),
       }));
 
       return { rows, availableActionTypes };
