@@ -417,6 +417,37 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return { cpiPoints, engPoints, keys };
   }, [data, paidCampaigns]);
 
+  // ── Daily installs × engagement per campaign ──────────────────────────────
+  const dailyCampTableData = useMemo(() => {
+    if (!data) return { rows: [], camps: [] as typeof paidCampaigns };
+    const camps = paidCampaigns.slice(0, 12);
+    const campByToken = new Map(camps.map((c) => [c.token, c]));
+
+    const dateMap = new Map<string, Map<string, { installs: number; engagement: number }>>();
+    for (const r of data.daily) {
+      const camp = campByToken.get(r.campaignToken);
+      if (!camp) continue;
+      if (!dateMap.has(r.date)) dateMap.set(r.date, new Map());
+      const dayMap = dateMap.get(r.date)!;
+      const e = dayMap.get(camp.token) ?? { installs: 0, engagement: 0 };
+      e.installs   += r.installs;
+      e.engagement += r.engagement;
+      dayMap.set(camp.token, e);
+    }
+
+    const rows = Array.from(dateMap.entries())
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([date, dayMap]) => {
+        const cells = camps.map((c) => dayMap.get(c.token) ?? { installs: 0, engagement: 0 });
+        const totalInstalls   = cells.reduce((s, v) => s + v.installs, 0);
+        const totalEngagement = cells.reduce((s, v) => s + v.engagement, 0);
+        return { date, displayDate: fmtDate(date), cells, totalInstalls, totalEngagement };
+      })
+      .filter((r) => r.totalInstalls > 0);
+
+    return { rows, camps };
+  }, [data, paidCampaigns]);
+
   // ── Comparaison créatifs : Dog Poster / Print to Video / Generic ──────────
   const CREATIVE_DEFS = [
     { key: 'dog',     label: 'Dog Poster',      color: '#f97316', test: (n: string) => n.includes('dog') },
@@ -750,7 +781,76 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         <CampaignTable campaigns={sortedCampaigns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       </ChartCard>
 
-      {/* 7. Comparaison Dog Poster / Print to Video / Generic */}
+      {/* 7. Daily installs × engagement per campaign */}
+      {dailyCampTableData.rows.length > 0 && (
+        <ChartCard title="Comparatif journalier par campagne" subtitle="App Installs · App Install Engagement (install_engagement_events) — données Adjust">
+          <div className="overflow-x-auto -mx-1">
+            <table className="min-w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b-2 border-gray-200">
+                  <th className="text-left py-2 pr-4 text-gray-500 font-semibold whitespace-nowrap sticky left-0 bg-white z-10">Date</th>
+                  {dailyCampTableData.camps.map((c, i) => (
+                    <th key={c.token} colSpan={2} className="text-center py-2 px-3 font-semibold border-l border-gray-100" style={{ color: COLORS[i % COLORS.length] }}>
+                      <span className="block truncate max-w-[130px] mx-auto" title={c.name}>
+                        {c.name.replace(/^Picta[_\s]*/i, '').slice(0, 22)}
+                      </span>
+                    </th>
+                  ))}
+                  <th colSpan={2} className="text-center py-2 px-3 font-bold text-gray-700 border-l border-gray-300">Total</th>
+                </tr>
+                <tr className="border-b border-gray-100 bg-gray-50/70">
+                  <th className="sticky left-0 bg-gray-50 py-1.5" />
+                  {dailyCampTableData.camps.map((c) => (
+                    <React.Fragment key={c.token}>
+                      <th className="text-right py-1.5 px-2 text-[10px] text-gray-400 font-medium border-l border-gray-100 whitespace-nowrap">Installs</th>
+                      <th className="text-right py-1.5 px-2 text-[10px] text-gray-400 font-medium whitespace-nowrap">Engmt</th>
+                    </React.Fragment>
+                  ))}
+                  <th className="text-right py-1.5 px-2 text-[10px] text-gray-600 font-semibold border-l border-gray-300 whitespace-nowrap">Installs</th>
+                  <th className="text-right py-1.5 px-2 text-[10px] text-gray-600 font-semibold whitespace-nowrap">Engmt</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {dailyCampTableData.rows.map((row) => {
+                  const totRate = row.totalInstalls > 0 ? row.totalEngagement / row.totalInstalls : 0;
+                  const totCls  = row.totalEngagement === 0 ? 'text-gray-300' : totRate >= 0.6 ? 'text-green-600 font-semibold' : totRate >= 0.4 ? 'text-orange-500 font-semibold' : 'text-red-500 font-semibold';
+                  return (
+                    <tr key={row.date} className="hover:bg-blue-50/20 transition-colors">
+                      <td className="py-2 pr-4 font-medium text-gray-600 sticky left-0 bg-white whitespace-nowrap z-10">{row.displayDate}</td>
+                      {row.cells.map((v, i) => {
+                        const rate   = v.installs > 0 ? v.engagement / v.installs : 0;
+                        const engCls = v.engagement === 0 ? 'text-gray-200' : rate >= 0.6 ? 'text-green-600' : rate >= 0.4 ? 'text-orange-500' : 'text-red-500';
+                        return (
+                          <React.Fragment key={dailyCampTableData.camps[i].token}>
+                            <td className="py-2 px-2 text-right font-mono text-gray-700 tabular-nums border-l border-gray-100">
+                              {v.installs > 0 ? v.installs : <span className="text-gray-200">—</span>}
+                            </td>
+                            <td className={`py-2 px-2 text-right font-mono tabular-nums ${engCls}`}>
+                              {v.engagement > 0
+                                ? <>{v.engagement}<span className="text-[9px] ml-0.5 opacity-60">({Math.round(rate * 100)}%)</span></>
+                                : <span className="text-gray-200">—</span>}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                      <td className="py-2 px-2 text-right font-mono font-bold text-gray-800 tabular-nums border-l border-gray-300">
+                        {row.totalInstalls > 0 ? row.totalInstalls : '—'}
+                      </td>
+                      <td className={`py-2 px-2 text-right font-mono tabular-nums ${totCls}`}>
+                        {row.totalEngagement > 0
+                          ? <>{row.totalEngagement}<span className="text-[9px] ml-0.5 opacity-60">({Math.round(totRate * 100)}%)</span></>
+                          : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </ChartCard>
+      )}
+
+      {/* 8. Comparaison Dog Poster / Print to Video / Generic */}
       {creativeGroups.some((g) => g.count > 0) && (() => {
         // Best = lowest CPI / CPI Engagement, highest CTR
         const withData = creativeGroups.filter((g) => g.count > 0);
