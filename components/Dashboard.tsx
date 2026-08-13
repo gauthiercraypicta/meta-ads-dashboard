@@ -24,8 +24,6 @@ import type { CreativeFrequencyPoint } from './charts/CreativeFatigueCurve';
 const CreativesTable       = dynamic(() => import('./CreativesTable'),       { ssr: false });
 const VideoAnalysis        = dynamic(() => import('./VideoAnalysis'),        { ssr: false });
 const StaticAnalysis       = dynamic(() => import('./StaticAnalysis'),       { ssr: false });
-const VeilleDashboard      = dynamic(() => import('./VeilleDashboard'),      { ssr: false });
-const ScorecardAcquisition = dynamic(() => import('./ScorecardAcquisition'), { ssr: false });
 
 // ── Lazy-loaded chart components (heavy recharts bundle) ──
 const ScatterAdSetEfficiency   = dynamic(() => import('./charts/ScatterAdSetEfficiency'),   { ssr: false });
@@ -196,7 +194,7 @@ export default function Dashboard() {
   const [loading, setLoading]         = useState(true);
   const [errors, setErrors]           = useState<FetchErrors>({});
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'impressions' | 'app' | 'adjust' | 'veille' | 'scorecard' | 'demographics'>('apercu');
+  const [mainTab, setMainTab]         = useState<'apercu' | 'creatives' | 'impressions' | 'app' | 'adjust' | 'demographics'>('apercu');
   const [activeTab, setActiveTab]     = useState<'campaigns' | 'adsets'>('campaigns');
   const [refreshKey, setRefreshKey]   = useState(0);
   const [datePreset, setDatePreset]   = useState<DatePreset>('last_30d');
@@ -807,9 +805,7 @@ export default function Dashboard() {
             { key: 'creatives',   label: 'Créatives',    icon: '🎨' },
             { key: 'impressions', label: 'Impressions',  icon: '👁' },
             { key: 'app',         label: 'App Picta',    icon: '📲' },
-            { key: 'adjust',      label: 'Adjust',       icon: '📡' },
-            { key: 'veille',      label: 'Veille',       icon: '🔍' },
-            { key: 'scorecard',     label: 'Scorecard',    icon: '🎯' },
+            { key: 'adjust',        label: 'Adjust',       icon: '📡' },
             { key: 'demographics',  label: 'Socio-démo',   icon: '👥' },
           ] as { key: typeof mainTab; label: string; icon: string }[]).map((tab) => (
             <button
@@ -845,7 +841,6 @@ export default function Dashboard() {
         <ImpressionsChart datePreset={datePreset} />
       )}
 
-      {/* ═══ ONGLET VEILLE ═══ */}
       {/* ═══ ONGLET APP PICTA ═══ */}
       {mainTab === 'app' && (
         <AppPicta datePreset={datePreset} />
@@ -854,15 +849,6 @@ export default function Dashboard() {
       {/* ═══ ONGLET ADJUST ═══ */}
       {mainTab === 'adjust' && (
         <AdjustDashboard datePreset={datePreset} />
-      )}
-
-      {mainTab === 'veille' && (
-        <VeilleDashboard />
-      )}
-
-      {/* ═══ ONGLET SCORECARD ═══ */}
-      {mainTab === 'scorecard' && (
-        <ScorecardAcquisition datePreset={datePreset} refreshKey={refreshKey} />
       )}
 
       {/* ═══ ONGLET SOCIO-DÉMO ═══ */}
