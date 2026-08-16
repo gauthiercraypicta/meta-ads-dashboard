@@ -805,7 +805,7 @@ export default function Dashboard() {
             { key: 'creatives',   label: 'Créatives',    icon: '🎨' },
             { key: 'impressions', label: 'Impressions',  icon: '👁' },
             { key: 'app',         label: 'App Picta',    icon: '📲' },
-            { key: 'adjust',        label: 'Adjust',       icon: '📡' },
+            { key: 'adjust',        label: 'Picta Ads',    icon: '📡' },
             { key: 'demographics',  label: 'Socio-démo',   icon: '👥' },
           ] as { key: typeof mainTab; label: string; icon: string }[]).map((tab) => (
             <button

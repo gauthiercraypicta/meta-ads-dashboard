@@ -12,6 +12,7 @@ export interface MetaDailyRow {
   campaignName: string;
   installs:     number;
   engagement:   number; // fb_mobile_activate_app
+  spend:        number;
 }
 
 function action(
@@ -30,6 +31,7 @@ interface RawRow {
   date_start:    string;
   campaign_id:   string;
   campaign_name: string;
+  spend?:        string;
   actions?: Array<{ action_type: string; value: string }>;
 }
 
@@ -86,7 +88,7 @@ export async function GET(req: Request) {
   try {
     const result = await withCache<{ rows: MetaDailyRow[] }>(cacheKey, TTL, async () => {
       const params = new URLSearchParams({
-        fields:         'date_start,campaign_id,campaign_name,actions',
+        fields:         'date_start,campaign_id,campaign_name,spend,actions',
         level:          'campaign',
         time_increment: '1',
         time_range:     JSON.stringify({ since, until }),
@@ -114,6 +116,7 @@ export async function GET(req: Request) {
         date:         r.date_start,
         campaignId:   r.campaign_id,
         campaignName: r.campaign_name,
+        spend:      Number(r.spend ?? 0),
         installs:   action(r.actions, 'mobile_app_install', 'omni_app_install'),
         engagement: action(r.actions, 'omni_activate_app', 'app_custom_event.fb_mobile_activate_app'),
       }));
