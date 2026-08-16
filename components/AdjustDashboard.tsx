@@ -441,32 +441,37 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return { cpiPoints, engPoints, keys };
   }, [data, paidCampaigns]);
 
-  // ── Meta vs Adjust comparison for a single campaign ───────────────────────
+  // ── Meta vs Adjust comparison — single campaign or all ───────────────────
   const comparisonData = useMemo(() => {
     if (!data || !metaDailyRaw || !selectedCampToken) return [];
-    const adjRows = data.daily.filter((r) => r.campaignToken === selectedCampToken);
-    // campaignToken IS the Meta campaign ID (confirmed by /^\d+$/ filter on paidCampaigns)
-    const metaRows = metaDailyRaw.filter((r) => r.campaignId === selectedCampToken);
+
+    const paidTokens = new Set(paidCampaigns.map((c) => c.token));
+    const isAll = selectedCampToken === '__all__';
+
+    const adjRows = isAll
+      ? data.daily.filter((r) => paidTokens.has(r.campaignToken))
+      : data.daily.filter((r) => r.campaignToken === selectedCampToken);
+    const metaRows = isAll
+      ? metaDailyRaw.filter((r) => paidTokens.has(r.campaignId))
+      : metaDailyRaw.filter((r) => r.campaignId === selectedCampToken);
 
     const dates = [...new Set([...adjRows.map((r) => r.date), ...metaRows.map((r) => r.date)])]
       .sort((a, b) => b.localeCompare(a));
 
     return dates.map((date) => {
-      const adjDay = adjRows
-        .filter((r) => r.date === date)
+      const adjDay  = adjRows.filter((r) => r.date === date)
         .reduce((s, r) => ({ installs: s.installs + r.installs, engagement: s.engagement + r.engagement }), { installs: 0, engagement: 0 });
-      const metaDay = metaRows
-        .filter((r) => r.date === date)
+      const metaDay = metaRows.filter((r) => r.date === date)
         .reduce((s, r) => ({ installs: s.installs + r.installs, engagement: s.engagement + r.engagement }), { installs: 0, engagement: 0 });
 
-      const iGap    = adjDay.installs   - metaDay.installs;
-      const iGapPct = metaDay.installs   > 0 ? (iGap / metaDay.installs) * 100   : null;
-      const eGap    = adjDay.engagement  - metaDay.engagement;
+      const iGap    = adjDay.installs  - metaDay.installs;
+      const iGapPct = metaDay.installs  > 0 ? (iGap / metaDay.installs)  * 100 : null;
+      const eGap    = adjDay.engagement - metaDay.engagement;
       const eGapPct = metaDay.engagement > 0 ? (eGap / metaDay.engagement) * 100 : null;
 
       return { date, displayDate: fmtDate(date), adjInstalls: adjDay.installs, metaInstalls: metaDay.installs, iGap, iGapPct, adjEngagement: adjDay.engagement, metaEngagement: metaDay.engagement, eGap, eGapPct };
     }).filter((r) => r.adjInstalls > 0 || r.metaInstalls > 0 || r.adjEngagement > 0 || r.metaEngagement > 0);
-  }, [data, metaDailyRaw, selectedCampToken]);
+  }, [data, metaDailyRaw, selectedCampToken, paidCampaigns]);
 
   // ── Comparaison créatifs : Dog Poster / Print to Video / Generic ──────────
   const CREATIVE_DEFS = [
@@ -815,7 +820,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
               onChange={(e) => setSelectedCampToken(e.target.value || null)}
               className="flex-1 min-w-[200px] border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 truncate"
             >
-              <option value="">— Choisir une campagne —</option>
+              <option value="">— Choisir —</option>
+              <option value="__all__">Toutes les campagnes</option>
               {paidCampaigns.map((c) => (
                 <option key={c.token} value={c.token}>{c.name}</option>
               ))}
@@ -881,7 +887,6 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                     return (
                       <tr key={row.date} className="hover:bg-blue-50/20 transition-colors">
                         <td className="py-2 pr-4 font-medium text-gray-600 sticky left-0 bg-white whitespace-nowrap z-10">{row.displayDate}</td>
-                        {/* Installs */}
                         <td className="py-2 px-2 text-right font-mono text-blue-700 tabular-nums border-l border-gray-200">
                           {row.adjInstalls > 0 ? row.adjInstalls : <span className="text-gray-200">—</span>}
                         </td>
@@ -891,10 +896,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                         <td className={`py-2 px-2 text-right font-mono tabular-nums ${iCls}`}>
                           {row.iGapPct !== null
                             ? <>{row.iGap > 0 ? '+' : ''}{row.iGap}<span className="text-[9px] ml-0.5 opacity-70">({row.iGap > 0 ? '+' : ''}{row.iGapPct.toFixed(0)}%)</span></>
-                            : row.adjInstalls > 0 && row.metaInstalls === 0 ? <span className="text-gray-300">—</span>
                             : '—'}
                         </td>
-                        {/* Engagement */}
                         <td className="py-2 px-2 text-right font-mono text-blue-700 tabular-nums border-l border-gray-200">
                           {row.adjEngagement > 0 ? row.adjEngagement : <span className="text-gray-200">—</span>}
                         </td>
@@ -909,6 +912,34 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                       </tr>
                     );
                   })}
+                  {/* Totals row */}
+                  {(() => {
+                    const tot = comparisonData.reduce(
+                      (s, r) => ({ ai: s.ai + r.adjInstalls, mi: s.mi + r.metaInstalls, ae: s.ae + r.adjEngagement, me: s.me + r.metaEngagement }),
+                      { ai: 0, mi: 0, ae: 0, me: 0 }
+                    );
+                    const iG = tot.ai - tot.mi;
+                    const iP = tot.mi > 0 ? (iG / tot.mi) * 100 : null;
+                    const eG = tot.ae - tot.me;
+                    const eP = tot.me > 0 ? (eG / tot.me) * 100 : null;
+                    const iCls = iP === null ? 'text-gray-500' : Math.abs(iP) < 10 ? 'text-green-700' : Math.abs(iP) < 30 ? 'text-orange-600' : 'text-red-600';
+                    const eCls = eP === null ? 'text-gray-500' : Math.abs(eP) < 10 ? 'text-green-700' : Math.abs(eP) < 30 ? 'text-orange-600' : 'text-red-600';
+                    return (
+                      <tr className="border-t-2 border-gray-300 bg-gray-50 font-bold">
+                        <td className="py-2.5 pr-4 text-gray-800 sticky left-0 bg-gray-50 whitespace-nowrap z-10">Total</td>
+                        <td className="py-2.5 px-2 text-right font-mono text-blue-800 tabular-nums border-l border-gray-200">{tot.ai || '—'}</td>
+                        <td className="py-2.5 px-2 text-right font-mono text-violet-800 tabular-nums">{tot.mi || '—'}</td>
+                        <td className={`py-2.5 px-2 text-right font-mono tabular-nums ${iCls}`}>
+                          {iP !== null ? <>{iG > 0 ? '+' : ''}{iG}<span className="text-[9px] ml-0.5 opacity-70">({iG > 0 ? '+' : ''}{iP.toFixed(0)}%)</span></> : '—'}
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-mono text-blue-800 tabular-nums border-l border-gray-200">{tot.ae || '—'}</td>
+                        <td className="py-2.5 px-2 text-right font-mono text-violet-800 tabular-nums">{tot.me || '—'}</td>
+                        <td className={`py-2.5 px-2 text-right font-mono tabular-nums ${eCls}`}>
+                          {eP !== null ? <>{eG > 0 ? '+' : ''}{eG}<span className="text-[9px] ml-0.5 opacity-70">({eG > 0 ? '+' : ''}{eP.toFixed(0)}%)</span></> : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </tbody>
               </table>
             </div>
