@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine, Cell,
@@ -10,6 +10,13 @@ import type { AdjustResponse, AdjustDailyRow, AdjustCampaignSummary } from '@/ty
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#06b6d4', '#84cc16', '#f43f5e'];
+
+const EXCLUDED_CAMPAIGN_IDS = new Set(['52683015717217']);
+
+function isGenericCampaign(name: string): boolean {
+  const n = name.toLowerCase();
+  return !n.includes('dog') && !(n.includes('print') || n.includes('ptv')) && !(n.includes('travel') || n.includes('card'));
+}
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
@@ -335,12 +342,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const [sortDir,     setSortDir]     = useState<SortDir>('desc');
   const [hiddenCamps,      setHiddenCamps]      = useState<Set<string>>(new Set());
   const [selectedCampToken, setSelectedCampToken] = useState<string | null>(null);
-  const [metaDailyRaw,     setMetaDailyRaw]     = useState<Array<{ date: string; campaignId: string; campaignName: string; installs: number; engagement: number }> | null>(null);
+  const [metaDailyRaw,     setMetaDailyRaw]     = useState<Array<{ date: string; campaignId: string; campaignName: string; installs: number; engagement: number; spend: number }> | null>(null);
   const [metaLoading,      setMetaLoading]      = useState(false);
   const [metaError,        setMetaError]        = useState<string | null>(null);
-
-  // Tracks which campaign line is currently hovered — read in tooltip render
-  const hoveredCampRef = useRef<string | null>(null);
+  const [showGenericOnly,  setShowGenericOnly]  = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -388,26 +393,49 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   const dailyPoints = useMemo<DailyPoint[]>(() => {
     if (!data) return [];
-    const pts = aggregateByDate(data.daily);
+    let rows = data.daily;
+    if (showGenericOnly) {
+      const genericTokens = new Set(
+        data.campaigns
+          .filter((c) => (c.cost > 0 || c.installs > 0) && /^\d+$/.test(c.token) && !EXCLUDED_CAMPAIGN_IDS.has(c.token) && isGenericCampaign(c.name))
+          .map((c) => c.token)
+      );
+      rows = data.daily.filter((r) => genericTokens.has(r.campaignToken));
+    }
+    const pts = aggregateByDate(rows);
     return granularity === 'week' ? toWeekly(pts) : pts;
-  }, [data, granularity]);
+  }, [data, granularity, showGenericOnly]);
 
   const paidCampaigns = useMemo(() =>
     data ? data.campaigns.filter(
-      (c) => (c.cost > 0 || c.installs > 0) && /^\d+$/.test(c.token)
+      (c) => (c.cost > 0 || c.installs > 0) && /^\d+$/.test(c.token) && !EXCLUDED_CAMPAIGN_IDS.has(c.token)
     ) : []
   , [data]);
 
+  const filteredPaidCampaigns = useMemo(() =>
+    showGenericOnly ? paidCampaigns.filter((c) => isGenericCampaign(c.name)) : paidCampaigns
+  , [paidCampaigns, showGenericOnly]);
+
+  const displayTotals = useMemo(() => {
+    if (!data) return null;
+    if (!showGenericOnly) return data.totals;
+    const sum = filteredPaidCampaigns.reduce(
+      (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement }),
+      { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 }
+    );
+    return { ...sum, sessions: 0, cpi: sum.installs > 0 ? sum.cost / sum.installs : 0, ctr: sum.impressions > 0 ? sum.clicks / sum.impressions : 0, cpm: sum.impressions > 0 ? (sum.cost / sum.impressions) * 1000 : 0, cpiEngagement: sum.engagement > 0 ? sum.cost / sum.engagement : 0 };
+  }, [data, showGenericOnly, filteredPaidCampaigns]);
+
   const sortedCampaigns = useMemo(() => {
-    return [...paidCampaigns].sort((a, b) => {
+    return [...filteredPaidCampaigns].sort((a, b) => {
       const diff = (a[sortKey] as number) - (b[sortKey] as number);
       return sortDir === 'desc' ? -diff : diff;
     });
-  }, [paidCampaigns, sortKey, sortDir]);
+  }, [filteredPaidCampaigns, sortKey, sortDir]);
 
   const campaignCpiLines = useMemo(() => {
-    if (!data || !paidCampaigns.length) return { cpiPoints: [], engPoints: [], keys: [] };
-    const topCamps = [...paidCampaigns].sort((a, b) => b.installs - a.installs).slice(0, 8);
+    if (!data || !filteredPaidCampaigns.length) return { cpiPoints: [], engPoints: [], keys: [] };
+    const topCamps = [...filteredPaidCampaigns].sort((a, b) => b.installs - a.installs).slice(0, 8);
     const campByToken = new Map(topCamps.map((c) => [c.token, c.name.replace(/^Picta_/i, '').trim().slice(0, 30)]));
     type CampDay = { cost: number; installs: number; engagement: number };
     const acc = new Map<string, Map<string, CampDay>>();
@@ -439,13 +467,13 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       return pt;
     });
     return { cpiPoints, engPoints, keys };
-  }, [data, paidCampaigns]);
+  }, [data, filteredPaidCampaigns]);
 
   // ── Meta vs Adjust comparison — single campaign or all ───────────────────
   const comparisonData = useMemo(() => {
     if (!data || !metaDailyRaw || !selectedCampToken) return [];
 
-    const paidTokens = new Set(paidCampaigns.map((c) => c.token));
+    const paidTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
     const isAll = selectedCampToken === '__all__';
 
     const adjRows = isAll
@@ -462,22 +490,23 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       const adjDay  = adjRows.filter((r) => r.date === date)
         .reduce((s, r) => ({ installs: s.installs + r.installs, engagement: s.engagement + r.engagement }), { installs: 0, engagement: 0 });
       const metaDay = metaRows.filter((r) => r.date === date)
-        .reduce((s, r) => ({ installs: s.installs + r.installs, engagement: s.engagement + r.engagement }), { installs: 0, engagement: 0 });
+        .reduce((s, r) => ({ installs: s.installs + r.installs, engagement: s.engagement + r.engagement, spend: s.spend + (r.spend ?? 0) }), { installs: 0, engagement: 0, spend: 0 });
 
       const iGap    = adjDay.installs  - metaDay.installs;
       const iGapPct = metaDay.installs  > 0 ? (iGap / metaDay.installs)  * 100 : null;
       const eGap    = adjDay.engagement - metaDay.engagement;
       const eGapPct = metaDay.engagement > 0 ? (eGap / metaDay.engagement) * 100 : null;
 
-      return { date, displayDate: fmtDate(date), adjInstalls: adjDay.installs, metaInstalls: metaDay.installs, iGap, iGapPct, adjEngagement: adjDay.engagement, metaEngagement: metaDay.engagement, eGap, eGapPct };
+      return { date, displayDate: fmtDate(date), metaSpend: metaDay.spend, adjInstalls: adjDay.installs, metaInstalls: metaDay.installs, iGap, iGapPct, adjEngagement: adjDay.engagement, metaEngagement: metaDay.engagement, eGap, eGapPct };
     }).filter((r) => r.adjInstalls > 0 || r.metaInstalls > 0 || r.adjEngagement > 0 || r.metaEngagement > 0);
-  }, [data, metaDailyRaw, selectedCampToken, paidCampaigns]);
+  }, [data, metaDailyRaw, selectedCampToken, filteredPaidCampaigns]);
 
-  // ── Comparaison créatifs : Dog Poster / Print to Video / Generic ──────────
+  // ── Comparaison créatifs : Dog Poster / Print to Video / Travel Card / Generic ──────────
   const CREATIVE_DEFS = [
     { key: 'dog',     label: 'Dog Poster',      color: '#f97316', test: (n: string) => n.includes('dog') },
     { key: 'ptv',     label: 'Print to Video',  color: '#8b5cf6', test: (n: string) => n.includes('print') || n.includes('ptv') },
-    { key: 'generic', label: 'Generic',          color: '#06b6d4', test: (n: string) => n.includes('generic') },
+    { key: 'travel',  label: 'Travel Card',      color: '#ec4899', test: (n: string) => n.includes('travel') || n.includes('card') },
+    { key: 'generic', label: 'Generic',          color: '#06b6d4', test: (n: string) => !n.includes('dog') && !n.includes('print') && !n.includes('ptv') && !n.includes('travel') && !n.includes('card') },
   ];
 
   const creativeGroups = useMemo(() => {
@@ -542,32 +571,18 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const avgCpi           = meanOf(dailyPoints, 'cpi');
   const avgCpiEngage     = meanOf(dailyPoints, 'cpiEngagement');
 
-  // Inline tooltip for campaign charts — reads hoveredCampRef to show only hovered line
-  const campMoneyTooltip = ({ active, payload, label }: TtProps) => {
-    if (!active || !payload?.length) return null;
-    const key = hoveredCampRef.current;
-    const item = key ? (payload.find((p) => p.dataKey === key) ?? payload[0]) : payload[0];
-    if (!item || item.value == null) return null;
-    return (
-      <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-4 py-3 text-xs pointer-events-none">
-        <p className="font-semibold text-gray-900 mb-1">{label}</p>
-        <p style={{ color: item.color }} className="flex justify-between gap-6">
-          <span className="font-medium max-w-[180px] truncate">{item.name}</span>
-          <span className="font-mono font-semibold shrink-0">{fmtMoney(item.value)}</span>
-        </p>
-      </div>
-    );
-  };
+  const effectiveTotals     = displayTotals ?? totals;
+  const effectivePrevTotals = showGenericOnly ? null : prevTotals;
 
   const kpis = [
-    { label: 'Coût total',       value: totals.cost,          prev: prevTotals?.cost,          display: `$${Number(totals.cost ?? 0).toFixed(0)}`, lowerIsBetter: true  },
-    { label: 'Installs',         value: totals.installs,      prev: prevTotals?.installs,      display: fmtNum(totals.installs),                   lowerIsBetter: false },
-    { label: 'CPI',              value: totals.cpi,           prev: prevTotals?.cpi,           display: totals.cpi > 0 ? fmtMoney(totals.cpi) : '—',           lowerIsBetter: true  },
-    { label: 'Engage. installs', value: totals.engagement,    prev: prevTotals?.engagement,    display: fmtNum(totals.engagement),                 lowerIsBetter: false },
-    { label: 'CPI Engagement',   value: totals.cpiEngagement, prev: prevTotals?.cpiEngagement, display: totals.cpiEngagement > 0 ? fmtMoney(totals.cpiEngagement) : '—', lowerIsBetter: true },
-    { label: 'Clics',            value: totals.clicks,        prev: prevTotals?.clicks,        display: fmtNum(totals.clicks),                     lowerIsBetter: false },
-    { label: 'Impressions',      value: totals.impressions,   prev: prevTotals?.impressions,   display: fmtNum(totals.impressions),                lowerIsBetter: false },
-    { label: 'CPM',              value: totals.cpm,           prev: prevTotals?.cpm,           display: fmtMoney(totals.cpm),                      lowerIsBetter: true  },
+    { label: 'Coût total',       value: effectiveTotals.cost,          prev: effectivePrevTotals?.cost,          display: `$${Number(effectiveTotals.cost ?? 0).toFixed(0)}`, lowerIsBetter: true  },
+    { label: 'Installs',         value: effectiveTotals.installs,      prev: effectivePrevTotals?.installs,      display: fmtNum(effectiveTotals.installs),                   lowerIsBetter: false },
+    { label: 'CPI',              value: effectiveTotals.cpi,           prev: effectivePrevTotals?.cpi,           display: effectiveTotals.cpi > 0 ? fmtMoney(effectiveTotals.cpi) : '—',           lowerIsBetter: true  },
+    { label: 'Engage. installs', value: effectiveTotals.engagement,    prev: effectivePrevTotals?.engagement,    display: fmtNum(effectiveTotals.engagement),                 lowerIsBetter: false },
+    { label: 'CPI Engagement',   value: effectiveTotals.cpiEngagement, prev: effectivePrevTotals?.cpiEngagement, display: effectiveTotals.cpiEngagement > 0 ? fmtMoney(effectiveTotals.cpiEngagement) : '—', lowerIsBetter: true },
+    { label: 'Clics',            value: effectiveTotals.clicks,        prev: effectivePrevTotals?.clicks,        display: fmtNum(effectiveTotals.clicks),                     lowerIsBetter: false },
+    { label: 'Impressions',      value: effectiveTotals.impressions,   prev: effectivePrevTotals?.impressions,   display: fmtNum(effectiveTotals.impressions),                lowerIsBetter: false },
+    { label: 'CPM',              value: effectiveTotals.cpm,           prev: effectivePrevTotals?.cpm,           display: fmtMoney(effectiveTotals.cpm),                      lowerIsBetter: true  },
   ];
 
   return (
@@ -623,6 +638,17 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-200 rounded-full px-2.5 py-1 font-mono hidden sm:inline">
           Adjust · KPI Service v1
         </span>
+        <button
+          onClick={() => setShowGenericOnly((v) => !v)}
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+            showGenericOnly
+              ? 'bg-cyan-500 text-white border-cyan-500 shadow-sm'
+              : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:text-gray-700'
+          }`}
+        >
+          <span>Generic only</span>
+          {showGenericOnly && <span className="opacity-80">×</span>}
+        </button>
         <div className="ml-auto flex gap-0.5 bg-gray-100 rounded-lg p-1">
           {(['day', 'week'] as Granularity[]).map((g) => (
             <button key={g} onClick={() => setGranularity(g)}
@@ -758,13 +784,11 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                   <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
                   <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
                   <YAxis tickFormatter={(v) => `$${Number(v).toFixed(1)}`} {...AXIS_COMMON} width={46} />
-                  <Tooltip content={campMoneyTooltip} />
+                  <Tooltip content={<MoneyTooltip />} />
                   {campaignCpiLines.keys.map((key, i) => (
                     <Line key={key} type="monotone" dataKey={key} name={key}
                       stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={false} connectNulls
                       hide={hiddenCamps.has(key)}
-                      onMouseEnter={() => { hoveredCampRef.current = key; }}
-                      onMouseLeave={() => { hoveredCampRef.current = null; }}
                     />
                   ))}
                 </LineChart>
@@ -784,13 +808,11 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                   <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" vertical={false} />
                   <XAxis dataKey="displayDate" {...AXIS_COMMON} interval="preserveStartEnd" />
                   <YAxis tickFormatter={(v) => `$${Number(v).toFixed(1)}`} {...AXIS_COMMON} width={46} />
-                  <Tooltip content={campMoneyTooltip} />
+                  <Tooltip content={<MoneyTooltip />} />
                   {campaignCpiLines.keys.map((key, i) => (
                     <Line key={key} type="monotone" dataKey={key} name={key}
                       stroke={COLORS[i % COLORS.length]} strokeWidth={2} dot={false} connectNulls
                       hide={hiddenCamps.has(key)}
-                      onMouseEnter={() => { hoveredCampRef.current = key; }}
-                      onMouseLeave={() => { hoveredCampRef.current = null; }}
                     />
                   ))}
                 </LineChart>
@@ -822,7 +844,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
             >
               <option value="">— Choisir —</option>
               <option value="__all__">Toutes les campagnes</option>
-              {paidCampaigns.map((c) => (
+              {filteredPaidCampaigns.map((c) => (
                 <option key={c.token} value={c.token}>{c.name}</option>
               ))}
             </select>
@@ -861,11 +883,13 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                 <thead>
                   <tr className="border-b-2 border-gray-200">
                     <th className="text-left py-2 pr-4 text-gray-500 font-semibold sticky left-0 bg-white z-10 whitespace-nowrap">Date</th>
+                    <th className="text-center py-2 px-3 font-semibold text-violet-600 border-l border-gray-200 whitespace-nowrap">Dépenses Meta</th>
                     <th colSpan={3} className="text-center py-2 px-3 font-semibold text-blue-600 border-l border-gray-200">App Installs</th>
                     <th colSpan={3} className="text-center py-2 px-3 font-semibold text-violet-600 border-l border-gray-200">App Install Engagement</th>
                   </tr>
                   <tr className="border-b border-gray-100 bg-gray-50/70 text-[10px] text-gray-400">
                     <th className="sticky left-0 bg-gray-50 py-1.5" />
+                    <th className="text-right py-1.5 px-2 border-l border-gray-200 whitespace-nowrap font-medium text-violet-500">$</th>
                     <th className="text-right py-1.5 px-2 border-l border-gray-200 whitespace-nowrap font-medium text-blue-500">Adjust</th>
                     <th className="text-right py-1.5 px-2 whitespace-nowrap font-medium text-violet-500">Meta</th>
                     <th className="text-right py-1.5 px-2 whitespace-nowrap font-semibold text-gray-600">Écart</th>
@@ -887,6 +911,9 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                     return (
                       <tr key={row.date} className="hover:bg-blue-50/20 transition-colors">
                         <td className="py-2 pr-4 font-medium text-gray-600 sticky left-0 bg-white whitespace-nowrap z-10">{row.displayDate}</td>
+                        <td className="py-2 px-2 text-right font-mono text-violet-700 tabular-nums border-l border-gray-200">
+                          {row.metaSpend > 0 ? fmtMoney(row.metaSpend) : <span className="text-gray-200">—</span>}
+                        </td>
                         <td className="py-2 px-2 text-right font-mono text-blue-700 tabular-nums border-l border-gray-200">
                           {row.adjInstalls > 0 ? row.adjInstalls : <span className="text-gray-200">—</span>}
                         </td>
@@ -915,8 +942,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                   {/* Totals row */}
                   {(() => {
                     const tot = comparisonData.reduce(
-                      (s, r) => ({ ai: s.ai + r.adjInstalls, mi: s.mi + r.metaInstalls, ae: s.ae + r.adjEngagement, me: s.me + r.metaEngagement }),
-                      { ai: 0, mi: 0, ae: 0, me: 0 }
+                      (s, r) => ({ ai: s.ai + r.adjInstalls, mi: s.mi + r.metaInstalls, ae: s.ae + r.adjEngagement, me: s.me + r.metaEngagement, ms: s.ms + (r.metaSpend ?? 0) }),
+                      { ai: 0, mi: 0, ae: 0, me: 0, ms: 0 }
                     );
                     const iG = tot.ai - tot.mi;
                     const iP = tot.mi > 0 ? (iG / tot.mi) * 100 : null;
@@ -927,6 +954,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                     return (
                       <tr className="border-t-2 border-gray-300 bg-gray-50 font-bold">
                         <td className="py-2.5 pr-4 text-gray-800 sticky left-0 bg-gray-50 whitespace-nowrap z-10">Total</td>
+                        <td className="py-2.5 px-2 text-right font-mono text-violet-800 tabular-nums border-l border-gray-200">{tot.ms > 0 ? fmtMoney(tot.ms) : '—'}</td>
                         <td className="py-2.5 px-2 text-right font-mono text-blue-800 tabular-nums border-l border-gray-200">{tot.ai || '—'}</td>
                         <td className="py-2.5 px-2 text-right font-mono text-violet-800 tabular-nums">{tot.mi || '—'}</td>
                         <td className={`py-2.5 px-2 text-right font-mono tabular-nums ${iCls}`}>
@@ -970,7 +998,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-gray-900">Comparaison créatifs</h2>
-              <span className="text-xs text-gray-400">Dog Poster · Print to Video · Generic</span>
+              <span className="text-xs text-gray-400">Dog Poster · Print to Video · Travel Card · Generic</span>
             </div>
 
             {/* KPI table */}
