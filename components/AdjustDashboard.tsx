@@ -17,6 +17,11 @@ function isGenericCampaign(name: string): boolean {
   return name.toLowerCase().includes('generic');
 }
 
+// Strips platform/channel words so Landing↔Web renames still match
+function normCampName(name: string): string {
+  return name.toLowerCase().replace(/landing|web|ios|android/g, '').replace(/[^a-z0-9]+/g, '');
+}
+
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
 function generateMock(): AdjustResponse {
@@ -276,27 +281,16 @@ interface ColDef {
   fmt: (c: AdjustCampaignSummary) => React.ReactNode;
 }
 
-function CampaignTable({ campaigns, sortKey, sortDir, onSort, metaSpendLookup }: {
+function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
   campaigns: AdjustCampaignSummary[];
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (k: SortKey) => void;
-  metaSpendLookup?: (c: AdjustCampaignSummary) => number;
 }) {
   const cols: ColDef[] = [
     { key: 'name',    label: 'Campagne', fmt: (c) => c.name },
     { key: 'appName', label: 'App',      fmt: (c) => c.appName },
-    { key: 'cost',    label: 'Coût',     fmt: (c) => {
-      if (Number(c.cost ?? 0) > 0) return `$${Number(c.cost).toFixed(0)}`;
-      const meta = metaSpendLookup?.(c) ?? 0;
-      if (meta > 0) return (
-        <span className="flex items-center justify-end gap-1">
-          <span>${Math.round(meta)}</span>
-          <span className="text-[9px] font-bold text-violet-500 bg-violet-50 px-1 rounded">Meta</span>
-        </span>
-      );
-      return <span className="text-gray-300">—</span>;
-    }},
+    { key: 'cost',    label: 'Coût',     fmt: (c) => Number(c.cost ?? 0) > 0 ? `$${Math.round(Number(c.cost))}` : '—' },
     { key: 'installs',      label: 'Installs',    fmt: (c) => fmtNum(c.installs) },
     { key: 'cpi',           label: 'CPI',         fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
     { key: 'engagement',    label: 'Engagement',  fmt: (c) => fmtNum(c.engagement) },
@@ -401,40 +395,86 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     setSelectedCampToken(null);
   }, [datePreset]);
 
-  const dailyPoints = useMemo<DailyPoint[]>(() => {
-    if (!data) return [];
-    let rows = data.daily;
-    if (showGenericOnly) {
-      const genericTokens = new Set(
-        data.campaigns
-          .filter((c) => (c.cost > 0 || c.installs > 0) && !EXCLUDED_CAMPAIGN_IDS.has(c.token) && isGenericCampaign(c.name))
-          .map((c) => c.token)
-      );
-      rows = data.daily.filter((r) => genericTokens.has(r.campaignToken));
-    }
-    const pts = aggregateByDate(rows);
-    return granularity === 'week' ? toWeekly(pts) : pts;
-  }, [data, granularity, showGenericOnly]);
-
+  // ── 1. Base paid campaigns (Adjust data only) ─────────────────────────────
   const paidCampaigns = useMemo(() =>
     data ? data.campaigns.filter(
       (c) => (c.cost > 0 || c.installs > 0) && !EXCLUDED_CAMPAIGN_IDS.has(c.token)
     ) : []
   , [data]);
 
-  const filteredPaidCampaigns = useMemo(() =>
-    showGenericOnly ? paidCampaigns.filter((c) => isGenericCampaign(c.name)) : paidCampaigns
-  , [paidCampaigns, showGenericOnly]);
+  // ── 2. Meta enrichment maps — built from metaDailyRaw ─────────────────────
+  // For campaigns where Adjust reports $0 spend (e.g. web/landing campaign),
+  // we inject the real cost from Meta so all KPIs recalculate from it.
+  const metaEnrichment = useMemo(() => {
+    const byId      = new Map<string, number>();
+    const byNorm    = new Map<string, number>();
+    const dailyByNorm = new Map<string, Map<string, number>>();
+    if (!metaDailyRaw) return { byId, byNorm, dailyByNorm };
+    for (const r of metaDailyRaw) {
+      byId.set(r.campaignId, (byId.get(r.campaignId) ?? 0) + r.spend);
+      const norm = normCampName(r.campaignName);
+      if (norm) {
+        byNorm.set(norm, (byNorm.get(norm) ?? 0) + r.spend);
+        if (!dailyByNorm.has(norm)) dailyByNorm.set(norm, new Map());
+        const dm = dailyByNorm.get(norm)!;
+        dm.set(r.date, (dm.get(r.date) ?? 0) + r.spend);
+      }
+    }
+    return { byId, byNorm, dailyByNorm };
+  }, [metaDailyRaw]);
 
+  // ── 3. Enriched campaigns — Meta spend injected for $0-cost campaigns ─────
+  const enrichedPaidCampaigns = useMemo(() =>
+    paidCampaigns.map(c => {
+      if (c.cost > 0) return c;
+      const metaCost = (metaEnrichment.byId.get(c.token) ?? 0) ||
+                       (metaEnrichment.byNorm.get(normCampName(c.name)) ?? 0);
+      if (metaCost === 0) return c;
+      return {
+        ...c, cost: metaCost,
+        cpi:           c.installs    > 0 ? metaCost / c.installs    : 0,
+        cpm:           c.impressions > 0 ? (metaCost / c.impressions) * 1000 : 0,
+        cpiEngagement: c.engagement  > 0 ? metaCost / c.engagement  : 0,
+      };
+    })
+  , [paidCampaigns, metaEnrichment]);
+
+  // ── 4. Enriched daily rows — Meta daily spend injected for $0-cost rows ───
+  const enrichedDailyRows = useMemo(() => {
+    if (!data) return [];
+    return data.daily.map(r => {
+      if (r.cost > 0) return r;
+      const daySpend = metaEnrichment.dailyByNorm.get(normCampName(r.campaignName))?.get(r.date) ?? 0;
+      return daySpend > 0 ? { ...r, cost: daySpend } : r;
+    });
+  }, [data, metaEnrichment]);
+
+  // ── 5. Generic filter ─────────────────────────────────────────────────────
+  const filteredPaidCampaigns = useMemo(() =>
+    showGenericOnly ? enrichedPaidCampaigns.filter((c) => isGenericCampaign(c.name)) : enrichedPaidCampaigns
+  , [enrichedPaidCampaigns, showGenericOnly]);
+
+  // ── 6. KPI totals — always computed from enriched campaigns ───────────────
   const displayTotals = useMemo(() => {
     if (!data) return null;
-    if (!showGenericOnly) return data.totals;
-    const sum = filteredPaidCampaigns.reduce(
+    const camps = showGenericOnly ? filteredPaidCampaigns : enrichedPaidCampaigns;
+    const sum = camps.reduce(
       (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement }),
       { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 }
     );
     return { ...sum, sessions: 0, cpi: sum.installs > 0 ? sum.cost / sum.installs : 0, ctr: sum.impressions > 0 ? sum.clicks / sum.impressions : 0, cpm: sum.impressions > 0 ? (sum.cost / sum.impressions) * 1000 : 0, cpiEngagement: sum.engagement > 0 ? sum.cost / sum.engagement : 0 };
-  }, [data, showGenericOnly, filteredPaidCampaigns]);
+  }, [data, showGenericOnly, enrichedPaidCampaigns, filteredPaidCampaigns]);
+
+  // ── 7. Daily chart points — from enriched rows ────────────────────────────
+  const dailyPoints = useMemo<DailyPoint[]>(() => {
+    let rows = enrichedDailyRows;
+    if (showGenericOnly) {
+      const genericTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
+      rows = enrichedDailyRows.filter((r) => genericTokens.has(r.campaignToken));
+    }
+    const pts = aggregateByDate(rows);
+    return granularity === 'week' ? toWeekly(pts) : pts;
+  }, [enrichedDailyRows, filteredPaidCampaigns, granularity, showGenericOnly]);
 
   const sortedCampaigns = useMemo(() => {
     return [...filteredPaidCampaigns].sort((a, b) => {
@@ -449,7 +489,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     const campByToken = new Map(topCamps.map((c) => [c.token, c.name.replace(/^Picta_/i, '').trim().slice(0, 30)]));
     type CampDay = { cost: number; installs: number; engagement: number };
     const acc = new Map<string, Map<string, CampDay>>();
-    for (const r of data.daily) {
+    for (const r of enrichedDailyRows) {
       const label = campByToken.get(r.campaignToken);
       if (!label) continue;
       if (!acc.has(r.date)) acc.set(r.date, new Map());
@@ -477,7 +517,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       return pt;
     });
     return { cpiPoints, engPoints, keys };
-  }, [data, filteredPaidCampaigns]);
+  }, [enrichedDailyRows, filteredPaidCampaigns]);
 
   // ── Meta vs Adjust comparison — single campaign or all ───────────────────
   const comparisonData = useMemo(() => {
@@ -512,28 +552,6 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     }).filter((r) => r.adjInstalls > 0 || r.metaInstalls > 0 || r.adjEngagement > 0 || r.metaEngagement > 0);
   }, [data, metaDailyRaw, selectedCampToken, filteredPaidCampaigns]);
 
-  // ── Meta spend fallback for campaigns with $0 Adjust cost ────────────────
-  // Handles landing→web renames by stripping platform/channel words before comparing
-  const metaSpendMaps = useMemo(() => {
-    const byId = new Map<string, number>();
-    const byNormName = new Map<string, number>();
-    if (!metaDailyRaw) return { byId, byNormName };
-    for (const r of metaDailyRaw) {
-      byId.set(r.campaignId, (byId.get(r.campaignId) ?? 0) + r.spend);
-      const norm = r.campaignName.toLowerCase().replace(/landing|web|ios|android/g, '').replace(/[^a-z0-9]+/g, '');
-      if (norm) byNormName.set(norm, (byNormName.get(norm) ?? 0) + r.spend);
-    }
-    return { byId, byNormName };
-  }, [metaDailyRaw]);
-
-  const getMetaSpendFallback = useCallback((c: AdjustCampaignSummary): number => {
-    if (c.cost > 0) return 0;
-    const byId = metaSpendMaps.byId.get(c.token) ?? 0;
-    if (byId > 0) return byId;
-    const norm = c.name.toLowerCase().replace(/landing|web|ios|android/g, '').replace(/[^a-z0-9]+/g, '');
-    return metaSpendMaps.byNormName.get(norm) ?? 0;
-  }, [metaSpendMaps]);
-
   // ── Comparaison créatifs : Dog Poster / Print to Video / Travel Card / Generic ──────────
   const CREATIVE_DEFS = [
     { key: 'dog',     label: 'Dog Poster',      color: '#f97316', test: (n: string) => n.includes('dog') },
@@ -544,7 +562,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   const creativeGroups = useMemo(() => {
     return CREATIVE_DEFS.map(({ key, label, color, test }) => {
-      const matched = paidCampaigns.filter((c) => test(c.name.toLowerCase()));
+      const matched = enrichedPaidCampaigns.filter((c) => test(c.name.toLowerCase()));
       const cost        = matched.reduce((s, c) => s + c.cost, 0);
       const installs    = matched.reduce((s, c) => s + c.installs, 0);
       const clicks      = matched.reduce((s, c) => s + c.clicks, 0);
@@ -566,7 +584,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       };
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paidCampaigns]);
+  }, [enrichedPaidCampaigns]);
 
   const toggleCamp = useCallback((key: string) => {
     setHiddenCamps((prev) => {
@@ -858,11 +876,11 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
       {/* 6. Campaign table */}
       <ChartCard title="Tableau par campagne" subtitle="Cliquer sur un en-tête pour trier">
-        <CampaignTable campaigns={sortedCampaigns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} metaSpendLookup={getMetaSpendFallback} />
+        <CampaignTable campaigns={sortedCampaigns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
       </ChartCard>
 
       {/* 7. Meta vs Adjust daily gap per campaign */}
-      {paidCampaigns.length > 0 && (
+      {filteredPaidCampaigns.length > 0 && (
         <ChartCard
           title="Gap Meta vs Adjust par campagne"
           subtitle="Installs : mobile_app_install · Engagement : omni_activate_app (Meta) vs install_engagement_events (Adjust)"
