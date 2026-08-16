@@ -520,7 +520,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     if (!metaDailyRaw) return { byId, byNormName };
     for (const r of metaDailyRaw) {
       byId.set(r.campaignId, (byId.get(r.campaignId) ?? 0) + r.spend);
-      const norm = r.campaignName.toLowerCase().replace(/\b(landing|web|ios|android)\b/g, '').replace(/[^a-z0-9]+/g, '');
+      const norm = r.campaignName.toLowerCase().replace(/landing|web|ios|android/g, '').replace(/[^a-z0-9]+/g, '');
       if (norm) byNormName.set(norm, (byNormName.get(norm) ?? 0) + r.spend);
     }
     return { byId, byNormName };
@@ -530,7 +530,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     if (c.cost > 0) return 0;
     const byId = metaSpendMaps.byId.get(c.token) ?? 0;
     if (byId > 0) return byId;
-    const norm = c.name.toLowerCase().replace(/\b(landing|web|ios|android)\b/g, '').replace(/[^a-z0-9]+/g, '');
+    const norm = c.name.toLowerCase().replace(/landing|web|ios|android/g, '').replace(/[^a-z0-9]+/g, '');
     return metaSpendMaps.byNormName.get(norm) ?? 0;
   }, [metaSpendMaps]);
 
