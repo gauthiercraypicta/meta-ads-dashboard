@@ -397,7 +397,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     if (showGenericOnly) {
       const genericTokens = new Set(
         data.campaigns
-          .filter((c) => (c.cost > 0 || c.installs > 0) && /^\d+$/.test(c.token) && !EXCLUDED_CAMPAIGN_IDS.has(c.token) && isGenericCampaign(c.name))
+          .filter((c) => (c.cost > 0 || c.installs > 0) && !EXCLUDED_CAMPAIGN_IDS.has(c.token) && isGenericCampaign(c.name))
           .map((c) => c.token)
       );
       rows = data.daily.filter((r) => genericTokens.has(r.campaignToken));
@@ -408,7 +408,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   const paidCampaigns = useMemo(() =>
     data ? data.campaigns.filter(
-      (c) => (c.cost > 0 || c.installs > 0) && /^\d+$/.test(c.token) && !EXCLUDED_CAMPAIGN_IDS.has(c.token)
+      (c) => (c.cost > 0 || c.installs > 0) && !EXCLUDED_CAMPAIGN_IDS.has(c.token)
     ) : []
   , [data]);
 
@@ -473,7 +473,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const comparisonData = useMemo(() => {
     if (!data || !metaDailyRaw || !selectedCampToken) return [];
 
-    const paidTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
+    // Only numeric tokens can be matched to Meta campaign IDs
+    const paidTokens = new Set(filteredPaidCampaigns.filter((c) => /^\d+$/.test(c.token)).map((c) => c.token));
     const isAll = selectedCampToken === '__all__';
 
     const adjRows = isAll
@@ -844,7 +845,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
             >
               <option value="">— Choisir —</option>
               <option value="__all__">Toutes les campagnes</option>
-              {filteredPaidCampaigns.map((c) => (
+              {filteredPaidCampaigns.filter((c) => /^\d+$/.test(c.token)).map((c) => (
                 <option key={c.token} value={c.token}>{c.name}</option>
               ))}
             </select>
