@@ -14,8 +14,7 @@ const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#06b6d4'
 const EXCLUDED_CAMPAIGN_IDS = new Set(['52683015717217']);
 
 function isGenericCampaign(name: string): boolean {
-  const n = name.toLowerCase();
-  return !n.includes('dog') && !(n.includes('print') || n.includes('ptv')) && !(n.includes('travel') || n.includes('card'));
+  return name.toLowerCase().includes('generic');
 }
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
@@ -274,19 +273,30 @@ type SortDir = 'asc' | 'desc';
 interface ColDef {
   key?: SortKey;
   label: string;
-  fmt: (c: AdjustCampaignSummary) => string;
+  fmt: (c: AdjustCampaignSummary) => React.ReactNode;
 }
 
-function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
+function CampaignTable({ campaigns, sortKey, sortDir, onSort, metaSpendLookup }: {
   campaigns: AdjustCampaignSummary[];
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (k: SortKey) => void;
+  metaSpendLookup?: (c: AdjustCampaignSummary) => number;
 }) {
   const cols: ColDef[] = [
-    { key: 'name',          label: 'Campagne',    fmt: (c) => c.name },
-    { key: 'appName',       label: 'App',         fmt: (c) => c.appName },
-    { key: 'cost',          label: 'Coût',        fmt: (c) => `$${Number(c.cost ?? 0).toFixed(0)}` },
+    { key: 'name',    label: 'Campagne', fmt: (c) => c.name },
+    { key: 'appName', label: 'App',      fmt: (c) => c.appName },
+    { key: 'cost',    label: 'Coût',     fmt: (c) => {
+      if (Number(c.cost ?? 0) > 0) return `$${Number(c.cost).toFixed(0)}`;
+      const meta = metaSpendLookup?.(c) ?? 0;
+      if (meta > 0) return (
+        <span className="flex items-center justify-end gap-1">
+          <span>${Math.round(meta)}</span>
+          <span className="text-[9px] font-bold text-violet-500 bg-violet-50 px-1 rounded">Meta</span>
+        </span>
+      );
+      return <span className="text-gray-300">—</span>;
+    }},
     { key: 'installs',      label: 'Installs',    fmt: (c) => fmtNum(c.installs) },
     { key: 'cpi',           label: 'CPI',         fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
     { key: 'engagement',    label: 'Engagement',  fmt: (c) => fmtNum(c.engagement) },
@@ -502,12 +512,34 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     }).filter((r) => r.adjInstalls > 0 || r.metaInstalls > 0 || r.adjEngagement > 0 || r.metaEngagement > 0);
   }, [data, metaDailyRaw, selectedCampToken, filteredPaidCampaigns]);
 
+  // ── Meta spend fallback for campaigns with $0 Adjust cost ────────────────
+  // Handles landing→web renames by stripping platform/channel words before comparing
+  const metaSpendMaps = useMemo(() => {
+    const byId = new Map<string, number>();
+    const byNormName = new Map<string, number>();
+    if (!metaDailyRaw) return { byId, byNormName };
+    for (const r of metaDailyRaw) {
+      byId.set(r.campaignId, (byId.get(r.campaignId) ?? 0) + r.spend);
+      const norm = r.campaignName.toLowerCase().replace(/\b(landing|web|ios|android)\b/g, '').replace(/[^a-z0-9]+/g, '');
+      if (norm) byNormName.set(norm, (byNormName.get(norm) ?? 0) + r.spend);
+    }
+    return { byId, byNormName };
+  }, [metaDailyRaw]);
+
+  const getMetaSpendFallback = useCallback((c: AdjustCampaignSummary): number => {
+    if (c.cost > 0) return 0;
+    const byId = metaSpendMaps.byId.get(c.token) ?? 0;
+    if (byId > 0) return byId;
+    const norm = c.name.toLowerCase().replace(/\b(landing|web|ios|android)\b/g, '').replace(/[^a-z0-9]+/g, '');
+    return metaSpendMaps.byNormName.get(norm) ?? 0;
+  }, [metaSpendMaps]);
+
   // ── Comparaison créatifs : Dog Poster / Print to Video / Travel Card / Generic ──────────
   const CREATIVE_DEFS = [
     { key: 'dog',     label: 'Dog Poster',      color: '#f97316', test: (n: string) => n.includes('dog') },
     { key: 'ptv',     label: 'Print to Video',  color: '#8b5cf6', test: (n: string) => n.includes('print') || n.includes('ptv') },
     { key: 'travel',  label: 'Travel Card',      color: '#ec4899', test: (n: string) => n.includes('travel') || n.includes('card') },
-    { key: 'generic', label: 'Generic',          color: '#06b6d4', test: (n: string) => !n.includes('dog') && !n.includes('print') && !n.includes('ptv') && !n.includes('travel') && !n.includes('card') },
+    { key: 'generic', label: 'Generic',          color: '#06b6d4', test: (n: string) => n.includes('generic') },
   ];
 
   const creativeGroups = useMemo(() => {
@@ -826,7 +858,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
       {/* 6. Campaign table */}
       <ChartCard title="Tableau par campagne" subtitle="Cliquer sur un en-tête pour trier">
-        <CampaignTable campaigns={sortedCampaigns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+        <CampaignTable campaigns={sortedCampaigns} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} metaSpendLookup={getMetaSpendFallback} />
       </ChartCard>
 
       {/* 7. Meta vs Adjust daily gap per campaign */}
