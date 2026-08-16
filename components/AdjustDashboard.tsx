@@ -409,7 +409,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     const byId      = new Map<string, number>();
     const byNorm    = new Map<string, number>();
     const dailyByNorm = new Map<string, Map<string, number>>();
-    if (!metaDailyRaw) return { byId, byNorm, dailyByNorm };
+    if (!metaDailyRaw) {
+      console.log('[meta-enrich] metaDailyRaw is null — skipping');
+      return { byId, byNorm, dailyByNorm };
+    }
+    const rowsWithSpend = metaDailyRaw.filter((r) => r.spend > 0);
+    console.log(`[meta-enrich] ${metaDailyRaw.length} rows total, ${rowsWithSpend.length} with spend>0`);
     for (const r of metaDailyRaw) {
       byId.set(r.campaignId, (byId.get(r.campaignId) ?? 0) + r.spend);
       const norm = normCampName(r.campaignName);
@@ -420,24 +425,33 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         dm.set(r.date, (dm.get(r.date) ?? 0) + r.spend);
       }
     }
+    console.log('[meta-enrich] byNorm (name→spend):', Object.fromEntries(byNorm));
     return { byId, byNorm, dailyByNorm };
   }, [metaDailyRaw]);
 
   // ── 3. Enriched campaigns — Meta spend injected for $0-cost campaigns ─────
-  const enrichedPaidCampaigns = useMemo(() =>
-    paidCampaigns.map(c => {
+  const enrichedPaidCampaigns = useMemo(() => {
+    const result = paidCampaigns.map(c => {
       if (c.cost > 0) return c;
+      const norm = normCampName(c.name);
       const metaCost = (metaEnrichment.byId.get(c.token) ?? 0) ||
-                       (metaEnrichment.byNorm.get(normCampName(c.name)) ?? 0);
-      if (metaCost === 0) return c;
+                       (metaEnrichment.byNorm.get(norm) ?? 0);
+      if (metaCost === 0) {
+        console.log(`[enrich] MISS — token:"${c.token}" name:"${c.name}" norm:"${norm}"`);
+        return c;
+      }
+      console.log(`[enrich] HIT  — "${c.name}" → $${metaCost.toFixed(2)}`);
       return {
         ...c, cost: metaCost,
         cpi:           c.installs    > 0 ? metaCost / c.installs    : 0,
         cpm:           c.impressions > 0 ? (metaCost / c.impressions) * 1000 : 0,
         cpiEngagement: c.engagement  > 0 ? metaCost / c.engagement  : 0,
       };
-    })
-  , [paidCampaigns, metaEnrichment]);
+    });
+    const enriched = result.filter((c, i) => c.cost !== paidCampaigns[i]?.cost);
+    console.log(`[enrich] ${enriched.length} campaigns enriched with Meta spend`);
+    return result;
+  }, [paidCampaigns, metaEnrichment]);
 
   // ── 4. Enriched daily rows — Meta daily spend injected for $0-cost rows ───
   const enrichedDailyRows = useMemo(() => {
@@ -689,6 +703,21 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-200 rounded-full px-2.5 py-1 font-mono hidden sm:inline">
           Adjust · KPI Service v1
         </span>
+        {/* Meta enrichment debug indicator */}
+        {(() => {
+          const enriched = enrichedPaidCampaigns.filter((c, i) => c.cost !== paidCampaigns[i]?.cost);
+          const totalMeta = [...metaEnrichment.byNorm.values()].reduce((a, b) => a + b, 0);
+          if (!metaDailyRaw) return null;
+          return (
+            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-mono ${
+              enriched.length > 0
+                ? 'text-green-700 bg-green-50 border-green-200'
+                : 'text-orange-600 bg-orange-50 border-orange-200'
+            }`} title={`Meta spend data: ${metaDailyRaw.length} rows, $${totalMeta.toFixed(0)} total. Enriched: ${enriched.map(c => c.name).join(', ') || 'none'}`}>
+              Meta ${totalMeta.toFixed(0)} · {enriched.length} enrichi{enriched.length !== 1 ? 's' : ''}
+            </span>
+          );
+        })()}
         <button
           onClick={() => setShowGenericOnly((v) => !v)}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${

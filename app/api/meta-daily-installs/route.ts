@@ -83,7 +83,7 @@ export async function GET(req: Request) {
     since = fmt(d);
   }
 
-  const cacheKey = `meta-daily-installs:${datePreset}`;
+  const cacheKey = `meta-daily-installs-v2:${datePreset}`;
 
   try {
     const result = await withCache<{ rows: MetaDailyRow[] }>(cacheKey, TTL, async () => {
