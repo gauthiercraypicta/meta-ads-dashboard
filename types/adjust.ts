@@ -10,6 +10,10 @@ export interface AdjustDailyRow {
   cost: number;
   sessions: number;
   engagement: number;     // install_engagement event count
+  cartAdd: number;        // Add to cart event
+  checkout: number;       // Checkout event
+  orderPlace: number;     // Order placed event
+  timeSpent: number;      // session_length total seconds (divide by sessions for avg)
 }
 
 export interface AdjustCampaignSummary {
@@ -22,6 +26,10 @@ export interface AdjustCampaignSummary {
   cost: number;
   sessions: number;
   engagement: number;
+  cartAdd: number;
+  checkout: number;
+  orderPlace: number;
+  timeSpent: number;
   cpi: number;
   ctr: number;
   cpm: number;
@@ -35,6 +43,10 @@ export interface AdjustTotals {
   cost: number;
   sessions: number;
   engagement: number;
+  cartAdd: number;
+  checkout: number;
+  orderPlace: number;
+  timeSpent: number;
   cpi: number;
   ctr: number;
   cpm: number;
