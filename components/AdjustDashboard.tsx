@@ -1349,7 +1349,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                         </td>
                       ))}
                     </tr>
-                    {/* Avg time spent */}
+                    {/* Avg time spent — session_length unavailable in Adjust Reports Service */}
                     {genericFunnel.some((g) => g.avgTimeSpent > 0) && (
                       <tr className="border-t-2 border-gray-200 bg-indigo-50/30">
                         <td className="px-4 py-2.5 font-semibold text-indigo-700">⏱ Temps moyen / user</td>
