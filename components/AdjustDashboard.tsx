@@ -600,6 +600,49 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrichedPaidCampaigns]);
 
+  // ── Funnel Generic : iOS · Android · Web ────────────────────────────────
+  const genericFunnel = useMemo(() => {
+    const genericCamps = enrichedPaidCampaigns.filter((c) => c.name.toLowerCase().includes('generic'));
+
+    type Platform = 'iOS' | 'Android' | 'Web';
+    const PLATFORMS: Platform[] = ['iOS', 'Android', 'Web'];
+    const PLT_COLORS: Record<Platform, string> = { iOS: '#3b82f6', Android: '#10b981', Web: '#f97316' };
+
+    function platformOf(name: string): Platform {
+      const n = name.toLowerCase();
+      if (n.includes('ios')) return 'iOS';
+      if (n.includes('android')) return 'Android';
+      return 'Web';
+    }
+
+    type Group = { impressions: number; clicks: number; installs: number; engagement: number; cost: number; campaigns: string[] };
+    const groups = new Map<Platform, Group>(PLATFORMS.map((p) => [p, { impressions: 0, clicks: 0, installs: 0, engagement: 0, cost: 0, campaigns: [] }]));
+
+    for (const c of genericCamps) {
+      const g = groups.get(platformOf(c.name))!;
+      g.impressions += c.impressions;
+      g.clicks      += c.clicks;
+      g.installs    += c.installs;
+      g.engagement  += c.engagement;
+      g.cost        += c.cost;
+      g.campaigns.push(c.name);
+    }
+
+    return PLATFORMS.map((p) => {
+      const g = groups.get(p)!;
+      return {
+        platform: p,
+        color: PLT_COLORS[p],
+        ...g,
+        ctr:            g.impressions > 0 ? g.clicks     / g.impressions : 0,
+        installRate:    g.clicks      > 0 ? g.installs   / g.clicks      : 0,
+        engagementRate: g.installs    > 0 ? g.engagement / g.installs    : 0,
+        cpi:            g.installs    > 0 ? g.cost       / g.installs    : 0,
+        cpiEngagement:  g.engagement  > 0 ? g.cost       / g.engagement  : 0,
+      };
+    }).filter((g) => g.impressions > 0 || g.installs > 0);
+  }, [enrichedPaidCampaigns]);
+
   const toggleCamp = useCallback((key: string) => {
     setHiddenCamps((prev) => {
       const next = new Set(prev);
@@ -1176,6 +1219,153 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                   }
                 </div>
               ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 9. Funnel Generic — iOS · Android · Web */}
+      {genericFunnel.length > 0 && (() => {
+        const funnelSteps = [
+          { label: 'Impressions', key: 'impressions' as const,  fmt: fmtNum,  conv: null },
+          { label: 'Clics',       key: 'clicks'      as const,  fmt: fmtNum,  conv: 'ctr' as const,         convLabel: 'CTR' },
+          { label: 'Installs',    key: 'installs'    as const,  fmt: fmtNum,  conv: 'installRate' as const,  convLabel: 'Install rate' },
+          { label: 'Engagement',  key: 'engagement'  as const,  fmt: fmtNum,  conv: 'engagementRate' as const, convLabel: 'Engage rate' },
+        ];
+
+        // Bar chart data — one point per funnel step, one bar per platform
+        const installsChartData = genericFunnel.map((g) => ({ platform: g.platform, value: g.installs, fill: g.color }));
+        const engagementChartData = genericFunnel.map((g) => ({ platform: g.platform, value: g.engagement, fill: g.color }));
+        const cpiChartData = genericFunnel.filter((g) => g.cpi > 0).map((g) => ({ platform: g.platform, value: +g.cpi.toFixed(2), fill: g.color }));
+        const cpiEngChartData = genericFunnel.filter((g) => g.cpiEngagement > 0).map((g) => ({ platform: g.platform, value: +g.cpiEngagement.toFixed(2), fill: g.color }));
+
+        // Best convRate at each step
+        const bestConv: Record<string, number> = {};
+        for (const step of funnelSteps) {
+          if (!step.conv) continue;
+          const vals = genericFunnel.map((g) => g[step.conv!]);
+          bestConv[step.conv] = Math.max(...vals);
+        }
+        const bestCpi    = Math.min(...genericFunnel.filter((g) => g.cpi > 0).map((g) => g.cpi));
+        const bestCpiEng = Math.min(...genericFunnel.filter((g) => g.cpiEngagement > 0).map((g) => g.cpiEngagement));
+
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-gray-900">Funnel Generic</h2>
+              <span className="text-xs text-gray-400">iOS · Android · Web — taux de conversion à chaque étape</span>
+            </div>
+
+            {/* Funnel table */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/50">
+                      <th className="px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wide">Étape</th>
+                      {genericFunnel.map((g) => (
+                        <th key={g.platform} className="px-4 py-3 text-center font-bold text-gray-800 whitespace-nowrap">
+                          <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ backgroundColor: g.color }} />
+                          {g.platform}
+                          <span className="ml-1 font-normal text-gray-400 text-[10px]">({g.campaigns.length} camp.)</span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {funnelSteps.map((step, si) => (
+                      <React.Fragment key={step.key}>
+                        {/* Conversion rate row (arrow) between steps */}
+                        {step.conv && si > 0 && (
+                          <tr className="bg-gray-50/40 border-b border-gray-50">
+                            <td className="px-4 py-1.5 text-[10px] text-gray-400 italic pl-7">↳ {step.convLabel}</td>
+                            {genericFunnel.map((g) => {
+                              const val = g[step.conv!];
+                              const isBest = val === bestConv[step.conv!] && val > 0;
+                              return (
+                                <td key={g.platform} className={`px-4 py-1.5 text-center font-mono text-[11px] ${isBest ? 'text-green-600 font-bold' : 'text-gray-500'}`}>
+                                  {val > 0 ? `${(val * 100).toFixed(1)}%` : '—'}
+                                  {isBest && <span className="ml-1 text-[9px] bg-green-100 text-green-700 px-1 rounded-full">best</span>}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        )}
+                        {/* Volume row */}
+                        <tr className={`border-b border-gray-50 ${si % 2 === 0 ? '' : 'bg-gray-50/20'}`}>
+                          <td className="px-4 py-2.5 font-semibold text-gray-700">{step.label}</td>
+                          {genericFunnel.map((g) => (
+                            <td key={g.platform} className="px-4 py-2.5 text-center font-mono text-gray-800 font-semibold">
+                              {step.fmt(g[step.key])}
+                            </td>
+                          ))}
+                        </tr>
+                      </React.Fragment>
+                    ))}
+
+                    {/* CPI row */}
+                    <tr className="border-t border-gray-200 bg-gray-50/40">
+                      <td className="px-4 py-2.5 font-semibold text-gray-600">CPI</td>
+                      {genericFunnel.map((g) => {
+                        const isBest = g.cpi > 0 && g.cpi === bestCpi;
+                        return (
+                          <td key={g.platform} className={`px-4 py-2.5 text-center font-mono whitespace-nowrap ${isBest ? 'font-bold text-green-700 bg-green-50' : 'text-gray-700'}`}>
+                            {g.cpi > 0 ? fmtMoney(g.cpi) : '—'}
+                            {isBest && <span className="ml-1.5 text-[9px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">best</span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    <tr className="border-t border-gray-100">
+                      <td className="px-4 py-2.5 font-semibold text-gray-600">CPI Engagement</td>
+                      {genericFunnel.map((g) => {
+                        const isBest = g.cpiEngagement > 0 && g.cpiEngagement === bestCpiEng;
+                        return (
+                          <td key={g.platform} className={`px-4 py-2.5 text-center font-mono whitespace-nowrap ${isBest ? 'font-bold text-green-700 bg-green-50' : 'text-gray-700'}`}>
+                            {g.cpiEngagement > 0 ? fmtMoney(g.cpiEngagement) : '—'}
+                            {isBest && <span className="ml-1.5 text-[9px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">best</span>}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    <tr className="border-t border-gray-100">
+                      <td className="px-4 py-2.5 font-semibold text-gray-600">Dépenses</td>
+                      {genericFunnel.map((g) => (
+                        <td key={g.platform} className="px-4 py-2.5 text-center font-mono text-gray-700">
+                          {g.cost > 0 ? `$${Math.round(g.cost)}` : '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Mini bar charts */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {[
+                { title: 'Installs',      data: installsChartData,  fmt: (v: number) => String(Math.round(v)) },
+                { title: 'Engagement',    data: engagementChartData, fmt: (v: number) => String(Math.round(v)) },
+                { title: 'CPI',           data: cpiChartData,       fmt: (v: number) => `$${v.toFixed(2)}` },
+                { title: 'CPI Engage.',   data: cpiEngChartData,    fmt: (v: number) => `$${v.toFixed(2)}` },
+              ].map(({ title, data, fmt }) => {
+                if (!data.length) return null;
+                return (
+                  <div key={title} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                    <p className="text-xs font-semibold text-gray-800 mb-3">{title}</p>
+                    <ResponsiveContainer width="100%" height={100}>
+                      <BarChart data={data} margin={{ top: 14, right: 4, left: 0, bottom: 0 }}>
+                        <XAxis dataKey="platform" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} />
+                        <YAxis hide />
+                        <Tooltip formatter={(v: unknown) => [fmt(Number(v)), title]} />
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]} label={{ position: 'top', fontSize: 10, fill: '#374151', formatter: (v: unknown) => fmt(Number(v)) }}>
+                          {data.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
