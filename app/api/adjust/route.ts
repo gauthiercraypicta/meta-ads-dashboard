@@ -8,10 +8,10 @@ const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/repor
 // install_engagement metric ID from filters_data — belongs in metrics= not event_kpis[]
 const ENGAGE_TOKEN = 'install_engagement_events';
 
-// Custom event tokens — set in Vercel env vars (6-char Adjust token, e.g. "abc123")
-const CART_TOKEN     = process.env.ADJUST_EVENT_CART_TOKEN     ?? '';
-const CHECKOUT_TOKEN = process.env.ADJUST_EVENT_CHECKOUT_TOKEN ?? '';
-const ORDER_TOKEN    = process.env.ADJUST_EVENT_ORDER_TOKEN    ?? '';
+// Custom event tokens (overridable via Vercel env vars)
+const CART_TOKEN     = process.env.ADJUST_EVENT_CART_TOKEN     ?? 'mqqtdv'; // cart_item_add
+const CHECKOUT_TOKEN = process.env.ADJUST_EVENT_CHECKOUT_TOKEN ?? '6w2n0h'; // order_checkout
+const ORDER_TOKEN    = process.env.ADJUST_EVENT_ORDER_TOKEN    ?? '7bpb2s'; // order_placed
 
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
 const METRICS    = [
