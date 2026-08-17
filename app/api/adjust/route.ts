@@ -8,17 +8,15 @@ const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/repor
 // install_engagement metric ID from filters_data — belongs in metrics= not event_kpis[]
 const ENGAGE_TOKEN = 'install_engagement_events';
 
-// Custom event tokens (overridable via Vercel env vars)
-const CART_TOKEN     = process.env.ADJUST_EVENT_CART_TOKEN     ?? 'mqqtdv'; // cart_item_add
-const CHECKOUT_TOKEN = process.env.ADJUST_EVENT_CHECKOUT_TOKEN ?? '6w2n0h'; // order_checkout
-const ORDER_TOKEN    = process.env.ADJUST_EVENT_ORDER_TOKEN    ?? '7bpb2s'; // order_placed
+// Adjust Reports Service uses "{event_name}_events" metric IDs, not 6-char tokens
+const CART_METRIC     = 'cart_item_add_events';
+const CHECKOUT_METRIC = 'order_checkout_events';
+const ORDER_METRIC    = 'order_placed_events';
 
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
 const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
-  ...(CART_TOKEN     ? [CART_TOKEN]     : []),
-  ...(CHECKOUT_TOKEN ? [CHECKOUT_TOKEN] : []),
-  ...(ORDER_TOKEN    ? [ORDER_TOKEN]    : []),
+  CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC,
 ];
 
 const API_TOKEN  = process.env.ADJUST_API_TOKEN  ?? '';
@@ -131,10 +129,10 @@ function mapRow(r: ReportRow): AdjustDailyRow {
     cost:          Number(r.cost            ?? 0),
     sessions:      0,
     engagement:    extractEngagement(r),
-    cartAdd:       CART_TOKEN     ? Number(r[CART_TOKEN]     ?? 0) : 0,
-    checkout:      CHECKOUT_TOKEN ? Number(r[CHECKOUT_TOKEN] ?? 0) : 0,
-    orderPlace:    ORDER_TOKEN    ? Number(r[ORDER_TOKEN]    ?? 0) : 0,
-    timeSpent:     0, // session_length unavailable in Reports Service (Cohort API only)
+    cartAdd:    Number(r[CART_METRIC]     ?? 0),
+    checkout:   Number(r[CHECKOUT_METRIC] ?? 0),
+    orderPlace: Number(r[ORDER_METRIC]    ?? 0),
+    timeSpent:  0,
   };
 }
 
