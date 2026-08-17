@@ -15,7 +15,7 @@ const ORDER_TOKEN    = process.env.ADJUST_EVENT_ORDER_TOKEN    ?? '7bpb2s'; // o
 
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
 const METRICS    = [
-  'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN, 'session_length',
+  'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   ...(CART_TOKEN     ? [CART_TOKEN]     : []),
   ...(CHECKOUT_TOKEN ? [CHECKOUT_TOKEN] : []),
   ...(ORDER_TOKEN    ? [ORDER_TOKEN]    : []),
@@ -134,7 +134,7 @@ function mapRow(r: ReportRow): AdjustDailyRow {
     cartAdd:       CART_TOKEN     ? Number(r[CART_TOKEN]     ?? 0) : 0,
     checkout:      CHECKOUT_TOKEN ? Number(r[CHECKOUT_TOKEN] ?? 0) : 0,
     orderPlace:    ORDER_TOKEN    ? Number(r[ORDER_TOKEN]    ?? 0) : 0,
-    timeSpent:     Number(r['session_length'] ?? 0),
+    timeSpent:     0, // session_length unavailable in Reports Service (Cohort API only)
   };
 }
 
