@@ -8,8 +8,18 @@ const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/repor
 // install_engagement metric ID from filters_data — belongs in metrics= not event_kpis[]
 const ENGAGE_TOKEN = 'install_engagement_events';
 
+// Custom event tokens — set in Vercel env vars (6-char Adjust token, e.g. "abc123")
+const CART_TOKEN     = process.env.ADJUST_EVENT_CART_TOKEN     ?? '';
+const CHECKOUT_TOKEN = process.env.ADJUST_EVENT_CHECKOUT_TOKEN ?? '';
+const ORDER_TOKEN    = process.env.ADJUST_EVENT_ORDER_TOKEN    ?? '';
+
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
-const METRICS    = ['installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN];
+const METRICS    = [
+  'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN, 'session_length',
+  ...(CART_TOKEN     ? [CART_TOKEN]     : []),
+  ...(CHECKOUT_TOKEN ? [CHECKOUT_TOKEN] : []),
+  ...(ORDER_TOKEN    ? [ORDER_TOKEN]    : []),
+];
 
 const API_TOKEN  = process.env.ADJUST_API_TOKEN  ?? '';
 const APP_TOKENS = (process.env.ADJUST_APP_TOKENS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -96,6 +106,7 @@ function extractEngagement(r: ReportRow): number {
 
 function deriveTotals(t: {
   installs: number; clicks: number; impressions: number; cost: number; engagement: number;
+  cartAdd: number; checkout: number; orderPlace: number; timeSpent: number;
 }): AdjustTotals {
   return {
     ...t,
@@ -114,16 +125,20 @@ function mapRow(r: ReportRow): AdjustDailyRow {
     appName:       r.app          ?? r.app_token ?? '',
     campaignToken: r.campaign_id_network ?? r.campaign ?? '',
     campaignName:  r.campaign     ?? '',
-    installs:      Number(r.installs    ?? 0),
-    clicks:        Number(r.clicks      ?? 0),
-    impressions:   Number(r.impressions ?? 0),
-    cost:          Number(r.cost        ?? 0),
+    installs:      Number(r.installs        ?? 0),
+    clicks:        Number(r.clicks          ?? 0),
+    impressions:   Number(r.impressions     ?? 0),
+    cost:          Number(r.cost            ?? 0),
     sessions:      0,
     engagement:    extractEngagement(r),
+    cartAdd:       CART_TOKEN     ? Number(r[CART_TOKEN]     ?? 0) : 0,
+    checkout:      CHECKOUT_TOKEN ? Number(r[CHECKOUT_TOKEN] ?? 0) : 0,
+    orderPlace:    ORDER_TOKEN    ? Number(r[ORDER_TOKEN]    ?? 0) : 0,
+    timeSpent:     Number(r['session_length'] ?? 0),
   };
 }
 
-type RowSum = { installs: number; clicks: number; impressions: number; cost: number; engagement: number };
+type RowSum = { installs: number; clicks: number; impressions: number; cost: number; engagement: number; cartAdd: number; checkout: number; orderPlace: number; timeSpent: number };
 
 function sumRows(rows: AdjustDailyRow[]): RowSum {
   return rows.reduce<RowSum>(
@@ -133,8 +148,12 @@ function sumRows(rows: AdjustDailyRow[]): RowSum {
       impressions: a.impressions + r.impressions,
       cost:        a.cost        + r.cost,
       engagement:  a.engagement  + r.engagement,
+      cartAdd:     a.cartAdd     + r.cartAdd,
+      checkout:    a.checkout    + r.checkout,
+      orderPlace:  a.orderPlace  + r.orderPlace,
+      timeSpent:   a.timeSpent   + r.timeSpent,
     }),
-    { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 },
+    { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0 },
   );
 }
 
@@ -177,6 +196,7 @@ export async function GET(req: Request) {
         const c = campMap.get(key) ?? {
           token: r.campaignToken, name: r.campaignName, appName: r.appName,
           installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0,
+          cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0,
           cpi: 0, ctr: 0, cpm: 0, cpiEngagement: 0,
         };
         c.installs    += r.installs;
@@ -184,6 +204,10 @@ export async function GET(req: Request) {
         c.impressions += r.impressions;
         c.cost        += r.cost;
         c.engagement  += r.engagement;
+        c.cartAdd     += r.cartAdd;
+        c.checkout    += r.checkout;
+        c.orderPlace  += r.orderPlace;
+        c.timeSpent   += r.timeSpent;
         campMap.set(key, c);
       }
 

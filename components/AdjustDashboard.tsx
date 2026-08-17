@@ -44,18 +44,22 @@ function generateMock(): AdjustResponse {
       const impressions = Math.round(cost * (ios ? 420 : 600) + Math.random() * 5000);
       const clicks = Math.round(impressions * (0.012 + Math.random() * 0.008));
       const installs = Math.round(clicks * (0.06 + Math.random() * 0.05));
-      const engagement = Math.round(installs * (0.55 + Math.random() * 0.3));
-      daily.push({ date, appToken: c.appToken, appName: c.appName, campaignToken: c.token, campaignName: c.name, installs, clicks, impressions, cost, sessions: Math.round(installs * (2 + Math.random() * 3)), engagement });
+      const engagement  = Math.round(installs * (0.55 + Math.random() * 0.3));
+      const cartAdd     = Math.round(engagement * (0.4 + Math.random() * 0.2));
+      const checkout    = Math.round(cartAdd    * (0.5 + Math.random() * 0.2));
+      const orderPlace  = Math.round(checkout   * (0.6 + Math.random() * 0.2));
+      const timeSpent   = Math.round(installs   * (120  + Math.random() * 180));
+      daily.push({ date, appToken: c.appToken, appName: c.appName, campaignToken: c.token, campaignName: c.name, installs, clicks, impressions, cost, sessions: Math.round(installs * (2 + Math.random() * 3)), engagement, cartAdd, checkout, orderPlace, timeSpent });
     }
   }
   const campSummary: AdjustCampaignSummary[] = campaigns.map((c) => {
     const rows = daily.filter((r) => r.campaignToken === c.token);
-    const t = rows.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0 });
+    const t = rows.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0 });
     return { token: c.token, name: c.name, appName: c.appName, ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
   });
-  const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0 });
+  const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0 });
   const totals = { ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
-  const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82) };
+  const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82), cartAdd: Math.round(totals.cartAdd * 0.80), checkout: Math.round(totals.checkout * 0.80), orderPlace: Math.round(totals.orderPlace * 0.80), timeSpent: totals.timeSpent * 0.95 };
   return { daily, campaigns: campSummary, totals, prevTotals, apps, currency: 'USD' };
 }
 
@@ -473,8 +477,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     if (!data) return null;
     const camps = showGenericOnly ? filteredPaidCampaigns : enrichedPaidCampaigns;
     const sum = camps.reduce(
-      (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement }),
-      { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 }
+      (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement, cartAdd: s.cartAdd + (c.cartAdd ?? 0), checkout: s.checkout + (c.checkout ?? 0), orderPlace: s.orderPlace + (c.orderPlace ?? 0), timeSpent: s.timeSpent + (c.timeSpent ?? 0) }),
+      { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0 }
     );
     return { ...sum, sessions: 0, cpi: sum.installs > 0 ? sum.cost / sum.installs : 0, ctr: sum.impressions > 0 ? sum.clicks / sum.impressions : 0, cpm: sum.impressions > 0 ? (sum.cost / sum.impressions) * 1000 : 0, cpiEngagement: sum.engagement > 0 ? sum.cost / sum.engagement : 0 };
   }, [data, showGenericOnly, enrichedPaidCampaigns, filteredPaidCampaigns]);
@@ -615,8 +619,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       return 'Web';
     }
 
-    type Group = { impressions: number; clicks: number; installs: number; engagement: number; cost: number; campaigns: string[] };
-    const groups = new Map<Platform, Group>(PLATFORMS.map((p) => [p, { impressions: 0, clicks: 0, installs: 0, engagement: 0, cost: 0, campaigns: [] }]));
+    type Group = { impressions: number; clicks: number; installs: number; engagement: number; cartAdd: number; checkout: number; orderPlace: number; timeSpent: number; cost: number; campaigns: string[] };
+    const groups = new Map<Platform, Group>(PLATFORMS.map((p) => [p, { impressions: 0, clicks: 0, installs: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, cost: 0, campaigns: [] }]));
 
     for (const c of genericCamps) {
       const g = groups.get(platformOf(c.name))!;
@@ -624,6 +628,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       g.clicks      += c.clicks;
       g.installs    += c.installs;
       g.engagement  += c.engagement;
+      g.cartAdd     += (c.cartAdd    ?? 0);
+      g.checkout    += (c.checkout   ?? 0);
+      g.orderPlace  += (c.orderPlace ?? 0);
+      g.timeSpent   += (c.timeSpent  ?? 0);
       g.cost        += c.cost;
       g.campaigns.push(c.name);
     }
@@ -634,11 +642,15 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         platform: p,
         color: PLT_COLORS[p],
         ...g,
-        ctr:            g.impressions > 0 ? g.clicks     / g.impressions : 0,
-        installRate:    g.clicks      > 0 ? g.installs   / g.clicks      : 0,
-        engagementRate: g.installs    > 0 ? g.engagement / g.installs    : 0,
-        cpi:            g.installs    > 0 ? g.cost       / g.installs    : 0,
-        cpiEngagement:  g.engagement  > 0 ? g.cost       / g.engagement  : 0,
+        ctr:             g.impressions > 0 ? g.clicks      / g.impressions : 0,
+        installRate:     g.clicks      > 0 ? g.installs    / g.clicks      : 0,
+        engagementRate:  g.installs    > 0 ? g.engagement  / g.installs    : 0,
+        cartAddRate:     g.engagement  > 0 ? g.cartAdd     / g.engagement  : 0,
+        checkoutRate:    g.cartAdd     > 0 ? g.checkout    / g.cartAdd     : 0,
+        orderPlaceRate:  g.checkout    > 0 ? g.orderPlace  / g.checkout    : 0,
+        avgTimeSpent:    g.installs    > 0 ? g.timeSpent   / g.installs    : 0, // seconds/user
+        cpi:             g.installs    > 0 ? g.cost        / g.installs    : 0,
+        cpiEngagement:   g.engagement  > 0 ? g.cost        / g.engagement  : 0,
       };
     }).filter((g) => g.impressions > 0 || g.installs > 0);
   }, [enrichedPaidCampaigns]);
@@ -1227,17 +1239,18 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       {/* 9. Funnel Generic — iOS · Android · Web */}
       {genericFunnel.length > 0 && (() => {
         const funnelSteps = [
-          { label: 'Impressions', key: 'impressions' as const,  fmt: fmtNum,  conv: null },
-          { label: 'Clics',       key: 'clicks'      as const,  fmt: fmtNum,  conv: 'ctr' as const,         convLabel: 'CTR' },
-          { label: 'Installs',    key: 'installs'    as const,  fmt: fmtNum,  conv: 'installRate' as const,  convLabel: 'Install rate' },
-          { label: 'Engagement',  key: 'engagement'  as const,  fmt: fmtNum,  conv: 'engagementRate' as const, convLabel: 'Engage rate' },
+          { label: 'Impressions',   key: 'impressions' as const,  fmt: fmtNum, conv: null,                              convLabel: '' },
+          { label: 'Clics',         key: 'clicks'      as const,  fmt: fmtNum, conv: 'ctr' as const,          convLabel: 'CTR (clic/imp.)' },
+          { label: 'Installs',      key: 'installs'    as const,  fmt: fmtNum, conv: 'installRate' as const,   convLabel: 'Install rate (inst./clic)' },
+          { label: 'Engagement',    key: 'engagement'  as const,  fmt: fmtNum, conv: 'engagementRate' as const, convLabel: 'Engage rate (eng./inst.)' },
+          { label: 'Cart Add',      key: 'cartAdd'     as const,  fmt: fmtNum, conv: 'cartAddRate' as const,   convLabel: 'Cart rate (cart/eng.)' },
+          { label: 'Checkout',      key: 'checkout'    as const,  fmt: fmtNum, conv: 'checkoutRate' as const,  convLabel: 'Checkout rate (chk./cart)' },
+          { label: 'Order Placed',  key: 'orderPlace'  as const,  fmt: fmtNum, conv: 'orderPlaceRate' as const, convLabel: 'Order rate (ord./chk.)' },
         ];
 
         // Bar chart data — one point per funnel step, one bar per platform
         const installsChartData = genericFunnel.map((g) => ({ platform: g.platform, value: g.installs, fill: g.color }));
-        const engagementChartData = genericFunnel.map((g) => ({ platform: g.platform, value: g.engagement, fill: g.color }));
         const cpiChartData = genericFunnel.filter((g) => g.cpi > 0).map((g) => ({ platform: g.platform, value: +g.cpi.toFixed(2), fill: g.color }));
-        const cpiEngChartData = genericFunnel.filter((g) => g.cpiEngagement > 0).map((g) => ({ platform: g.platform, value: +g.cpiEngagement.toFixed(2), fill: g.color }));
 
         // Best convRate at each step
         const bestConv: Record<string, number> = {};
@@ -1336,6 +1349,26 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                         </td>
                       ))}
                     </tr>
+                    {/* Avg time spent */}
+                    {genericFunnel.some((g) => g.avgTimeSpent > 0) && (
+                      <tr className="border-t-2 border-gray-200 bg-indigo-50/30">
+                        <td className="px-4 py-2.5 font-semibold text-indigo-700">⏱ Temps moyen / user</td>
+                        {genericFunnel.map((g) => {
+                          const mins  = Math.floor(g.avgTimeSpent / 60);
+                          const secs  = Math.round(g.avgTimeSpent % 60);
+                          const best  = Math.max(...genericFunnel.map((x) => x.avgTimeSpent));
+                          const isBest = g.avgTimeSpent === best && g.avgTimeSpent > 0;
+                          return (
+                            <td key={g.platform} className={`px-4 py-2.5 text-center font-mono whitespace-nowrap ${isBest ? 'font-bold text-green-700 bg-green-50' : 'text-indigo-800'}`}>
+                              {g.avgTimeSpent > 0
+                                ? mins > 0 ? `${mins}m ${secs}s` : `${secs}s`
+                                : '—'}
+                              {isBest && <span className="ml-1.5 text-[9px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">best</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1344,10 +1377,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
             {/* Mini bar charts */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {[
-                { title: 'Installs',      data: installsChartData,  fmt: (v: number) => String(Math.round(v)) },
-                { title: 'Engagement',    data: engagementChartData, fmt: (v: number) => String(Math.round(v)) },
-                { title: 'CPI',           data: cpiChartData,       fmt: (v: number) => `$${v.toFixed(2)}` },
-                { title: 'CPI Engage.',   data: cpiEngChartData,    fmt: (v: number) => `$${v.toFixed(2)}` },
+                { title: 'Installs',        data: installsChartData,   fmt: (v: number) => String(Math.round(v)) },
+                { title: 'Order Placed',    data: genericFunnel.filter((g) => g.orderPlace > 0).map((g) => ({ platform: g.platform, value: g.orderPlace, fill: g.color })), fmt: (v: number) => String(Math.round(v)) },
+                { title: 'CPI',             data: cpiChartData,        fmt: (v: number) => `$${v.toFixed(2)}` },
+                { title: 'Temps moy./user', data: genericFunnel.filter((g) => g.avgTimeSpent > 0).map((g) => ({ platform: g.platform, value: +(g.avgTimeSpent / 60).toFixed(1), fill: g.color })), fmt: (v: number) => `${v}m` },
               ].map(({ title, data, fmt }) => {
                 if (!data.length) return null;
                 return (
