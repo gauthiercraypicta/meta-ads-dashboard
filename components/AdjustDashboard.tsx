@@ -354,6 +354,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const [metaLoading,      setMetaLoading]      = useState(false);
   const [metaError,        setMetaError]        = useState<string | null>(null);
   const [showGenericOnly,  setShowGenericOnly]  = useState(false);
+  const [budgetChanges,    setBudgetChanges]    = useState<Array<{ date: string; campaignId: string; campaignName: string; oldBudget: number; newBudget: number }>>([]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -379,16 +380,19 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Fetch Meta daily installs whenever datePreset changes
+  // Fetch Meta daily installs + budget changes whenever datePreset changes
   useEffect(() => {
     setMetaLoading(true);
     setMetaError(null);
     setMetaDailyRaw(null);
-    fetch(`/api/meta-daily-installs?date_preset=${datePreset}`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.error) setMetaError(j.error);
-        else setMetaDailyRaw(j.rows ?? []);
+    Promise.all([
+      fetch(`/api/meta-daily-installs?date_preset=${datePreset}`).then((r) => r.json()),
+      fetch(`/api/meta-budget-changes?date_preset=${datePreset}`).then((r) => r.json()),
+    ])
+      .then(([installs, budget]) => {
+        if (installs.error) setMetaError(installs.error);
+        else setMetaDailyRaw(installs.rows ?? []);
+        if (!budget.error) setBudgetChanges(budget.changes ?? []);
       })
       .catch((e: unknown) => setMetaError(e instanceof Error ? e.message : 'Erreur Meta'))
       .finally(() => setMetaLoading(false));
@@ -655,6 +659,41 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     }).filter((g) => g.impressions > 0 || g.installs > 0);
   }, [enrichedPaidCampaigns]);
 
+  // ── Budget change reference lines — grouped by date ─────────────────────
+  const budgetRefLines = useMemo(() => {
+    // Abbreviate campaign names for chart labels
+    function abbrev(name: string): string {
+      return name
+        .replace(/^US_Picta_/i, '')
+        .replace(/^Picta_/i, '')
+        .replace(/_allformats.*/i, '')
+        .replace(/_Meta_clickoncta/i, '')
+        .replace(/_7day.*/i, '')
+        .replace(/_/g, ' ')
+        .trim()
+        .slice(0, 18);
+    }
+    // Group by date — one line per date, combine labels
+    const byDate = new Map<string, { label: string; maxIncrease: number }>();
+    for (const bc of budgetChanges) {
+      const inc   = bc.newBudget - bc.oldBudget;
+      const label = `↑ ${abbrev(bc.campaignName)} +$${inc}`;
+      const existing = byDate.get(bc.date);
+      if (!existing) {
+        byDate.set(bc.date, { label, maxIncrease: inc });
+      } else {
+        // Multiple changes same day — show the first, append count
+        byDate.set(bc.date, { label: existing.label + ` (+${byDate.size > 1 ? 'etc.' : ''})`, maxIncrease: Math.max(existing.maxIncrease, inc) });
+      }
+    }
+    // Map to chart displayDate values
+    return Array.from(byDate.entries()).map(([date, info]) => ({
+      date,
+      displayDate: dailyPoints.find((p) => p.date === date)?.displayDate ?? null,
+      label: info.label,
+    })).filter((r) => r.displayDate !== null);
+  }, [budgetChanges, dailyPoints]);
+
   const toggleCamp = useCallback((key: string) => {
     setHiddenCamps((prev) => {
       const next = new Set(prev);
@@ -816,6 +855,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                 <ReferenceLine y={avgInstalls} {...REFLINE_STYLE}
                   label={{ value: `moy. ${Math.round(avgInstalls)}`, position: 'insideTopRight', fontSize: 10, fill: '#94a3b8' }} />
               )}
+              {budgetRefLines.map((bl) => (
+                <ReferenceLine key={bl.date} x={bl.displayDate!} stroke="#f59e0b" strokeDasharray="4 2" strokeWidth={1.5}
+                  label={{ value: bl.label, position: 'insideTopLeft', fontSize: 8, fill: '#d97706', angle: -90 }} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -851,6 +894,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                 <ReferenceLine y={avgInstalls} {...REFLINE_STYLE}
                   label={{ value: `moy. ${Math.round(avgInstalls)}`, position: 'insideTopRight', fontSize: 10, fill: '#94a3b8' }} />
               )}
+              {budgetRefLines.map((bl) => (
+                <ReferenceLine key={bl.date} x={bl.displayDate!} stroke="#f59e0b" strokeDasharray="4 2" strokeWidth={1.5}
+                  label={{ value: bl.label, position: 'insideTopLeft', fontSize: 8, fill: '#d97706', angle: -90 }} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -867,6 +914,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                 <ReferenceLine y={avgEngagement} {...REFLINE_STYLE}
                   label={{ value: `moy. ${Math.round(avgEngagement)}`, position: 'insideTopRight', fontSize: 10, fill: '#94a3b8' }} />
               )}
+              {budgetRefLines.map((bl) => (
+                <ReferenceLine key={bl.date} x={bl.displayDate!} stroke="#f59e0b" strokeDasharray="4 2" strokeWidth={1.5}
+                  label={{ value: bl.label, position: 'insideTopLeft', fontSize: 8, fill: '#d97706', angle: -90 }} />
+              ))}
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -886,6 +937,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                 <ReferenceLine y={avgCpi} {...REFLINE_STYLE}
                   label={{ value: `moy. $${avgCpi.toFixed(2)}`, position: 'insideTopRight', fontSize: 10, fill: '#94a3b8' }} />
               )}
+              {budgetRefLines.map((bl) => (
+                <ReferenceLine key={bl.date} x={bl.displayDate!} stroke="#f59e0b" strokeDasharray="4 2" strokeWidth={1.5}
+                  label={{ value: bl.label, position: 'insideTopLeft', fontSize: 8, fill: '#d97706', angle: -90 }} />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -902,6 +957,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                 <ReferenceLine y={avgCpiEngage} {...REFLINE_STYLE}
                   label={{ value: `moy. $${avgCpiEngage.toFixed(2)}`, position: 'insideTopRight', fontSize: 10, fill: '#94a3b8' }} />
               )}
+              {budgetRefLines.map((bl) => (
+                <ReferenceLine key={bl.date} x={bl.displayDate!} stroke="#f59e0b" strokeDasharray="4 2" strokeWidth={1.5}
+                  label={{ value: bl.label, position: 'insideTopLeft', fontSize: 8, fill: '#d97706', angle: -90 }} />
+              ))}
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
