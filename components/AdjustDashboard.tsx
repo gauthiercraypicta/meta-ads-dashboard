@@ -381,20 +381,28 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   // Fetch Meta daily installs + budget changes whenever datePreset changes
+  // Use allSettled so a budget-changes failure never blocks installs from loading
   useEffect(() => {
     setMetaLoading(true);
     setMetaError(null);
     setMetaDailyRaw(null);
-    Promise.all([
+    Promise.allSettled([
       fetch(`/api/meta-daily-installs?date_preset=${datePreset}`).then((r) => r.json()),
       fetch(`/api/meta-budget-changes?date_preset=${datePreset}`).then((r) => r.json()),
     ])
       .then(([installs, budget]) => {
-        if (installs.error) setMetaError(installs.error);
-        else setMetaDailyRaw(installs.rows ?? []);
-        if (!budget.error) setBudgetChanges(budget.changes ?? []);
+        if (installs.status === 'fulfilled') {
+          const data = installs.value as { error?: string; rows?: typeof metaDailyRaw };
+          if (data.error) setMetaError(data.error);
+          else setMetaDailyRaw(data.rows ?? []);
+        } else {
+          setMetaError(installs.reason instanceof Error ? installs.reason.message : 'Erreur Meta installs');
+        }
+        if (budget.status === 'fulfilled') {
+          const bdata = budget.value as { error?: string; changes?: typeof budgetChanges };
+          if (!bdata.error) setBudgetChanges(bdata.changes ?? []);
+        }
       })
-      .catch((e: unknown) => setMetaError(e instanceof Error ? e.message : 'Erreur Meta'))
       .finally(() => setMetaLoading(false));
   }, [datePreset]);
 
@@ -807,7 +815,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
               enriched.length > 0
                 ? 'text-green-700 bg-green-50 border-green-200'
                 : 'text-orange-600 bg-orange-50 border-orange-200'
-            }`} title={`Meta spend data: ${metaDailyRaw.length} rows, $${totalMeta.toFixed(0)} total. Enriched: ${enriched.map(c => c.name).join(', ') || 'none'}`}>
+            }`} title={[
+                `Meta: ${metaDailyRaw.length} rows · $${totalMeta.toFixed(0)} total`,
+                `Noms Meta (normalisés): ${[...metaEnrichment.byNorm.entries()].map(([k,v]) => `${k}=$${v.toFixed(0)}`).join(' | ') || '—'}`,
+                `Adjust $0 cherchent: ${paidCampaigns.filter(c => c.cost === 0).map(c => `"${c.name}"→${normCampName(c.name)}`).join(' | ') || '—'}`,
+                `Enrichis: ${enriched.map(c => c.name).join(', ') || 'aucun'}`,
+              ].join('\n')}>
               Meta ${totalMeta.toFixed(0)} · {enriched.length} enrichi{enriched.length !== 1 ? 's' : ''}
             </span>
           );
