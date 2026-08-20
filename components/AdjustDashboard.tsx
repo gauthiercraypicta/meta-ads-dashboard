@@ -17,9 +17,11 @@ function isGenericCampaign(name: string): boolean {
   return name.toLowerCase().includes('generic');
 }
 
-// Strips platform/channel words so Landing↔Web renames still match
+// Strips platform/channel/variant words so Landing↔Web and _perf renames still match
 function normCampName(name: string): string {
-  return name.toLowerCase().replace(/landing|web|ios|android/g, '').replace(/[^a-z0-9]+/g, '');
+  return name.toLowerCase()
+    .replace(/landing|web|ios|android|perf|performance|v\d+|new|old|test/g, '')
+    .replace(/[^a-z0-9]+/g, '');
 }
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
@@ -450,8 +452,18 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     const result = paidCampaigns.map(c => {
       if (c.cost > 0) return c;
       const norm = normCampName(c.name);
-      const metaCost = (metaEnrichment.byId.get(c.token) ?? 0) ||
-                       (metaEnrichment.byNorm.get(norm) ?? 0);
+      let metaCost = (metaEnrichment.byId.get(c.token) ?? 0) ||
+                     (metaEnrichment.byNorm.get(norm) ?? 0);
+      // Fallback: prefix containment handles minor renames (e.g. _perf suffix added on one side)
+      if (metaCost === 0 && norm.length >= 10) {
+        for (const [metaNorm, spend] of metaEnrichment.byNorm) {
+          if (metaNorm.length >= 10 && (metaNorm.startsWith(norm) || norm.startsWith(metaNorm))) {
+            metaCost = spend;
+            console.log(`[enrich] PREFIX-MATCH "${c.name}" via "${metaNorm}" → $${spend.toFixed(2)}`);
+            break;
+          }
+        }
+      }
       if (metaCost === 0) {
         console.log(`[enrich] MISS — token:"${c.token}" name:"${c.name}" norm:"${norm}"`);
         return c;
