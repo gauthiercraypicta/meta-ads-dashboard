@@ -75,7 +75,9 @@ export async function GET(req: Request) {
 
   let since: string;
   const days: Record<string, number> = { last_7d: 7, last_30d: 30, last_90d: 90 };
-  if (datePreset === 'since_dec_1') {
+  if (datePreset === 'yesterday') {
+    since = until; // since = until = yesterday
+  } else if (datePreset === 'since_dec_1') {
     since = '2025-12-01';
   } else {
     const d = new Date(today);

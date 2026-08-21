@@ -164,9 +164,10 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type DatePreset = 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
+type DatePreset = 'yesterday' | 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
 
 const DATE_PRESETS: { value: DatePreset; label: string }[] = [
+  { value: 'yesterday', label: 'Hier' },
   { value: 'last_7d', label: '7 jours' },
   { value: 'last_30d', label: '30 jours' },
   { value: 'last_90d', label: '90 jours' },
@@ -174,6 +175,7 @@ const DATE_PRESETS: { value: DatePreset; label: string }[] = [
 ];
 
 const PERIOD_LABELS: Record<DatePreset, string> = {
+  yesterday: 'Hier',
   last_7d: '7 derniers jours',
   last_30d: '30 derniers jours',
   last_90d: '90 derniers jours',
