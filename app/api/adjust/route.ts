@@ -9,14 +9,20 @@ const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/repor
 const ENGAGE_TOKEN = 'install_engagement_events';
 
 // Adjust Reports Service uses "{event_name}_events" metric IDs, not 6-char tokens
-const CART_METRIC     = 'cart_item_add_events';
-const CHECKOUT_METRIC = 'order_checkout_events';
-const ORDER_METRIC    = 'order_placed_events';
+const CART_METRIC              = 'cart_item_add_events';
+const CHECKOUT_METRIC          = 'order_checkout_events';
+const ORDER_METRIC             = 'order_placed_events';
+const PRODUCT_DETAIL_METRIC    = 'product_detail_open_events';
+const CART_UNIQUE_METRIC       = 'cart_item_add_unique_events';
+const CHECKOUT_UNIQUE_METRIC   = 'order_checkout_unique_events';
+const ORDER_UNIQUE_METRIC      = 'order_placed_unique_events';
+const PRODUCT_UNIQUE_METRIC    = 'product_detail_open_unique_events';
 
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network', 'os_name'];
 const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
-  CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC,
+  CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
+  CART_UNIQUE_METRIC, CHECKOUT_UNIQUE_METRIC, ORDER_UNIQUE_METRIC, PRODUCT_UNIQUE_METRIC,
 ];
 
 const API_TOKEN  = process.env.ADJUST_API_TOKEN  ?? '';
@@ -105,6 +111,8 @@ function extractEngagement(r: ReportRow): number {
 function deriveTotals(t: {
   installs: number; clicks: number; impressions: number; cost: number; engagement: number;
   cartAdd: number; checkout: number; orderPlace: number; timeSpent: number;
+  productDetailOpen: number; cartAddUnique: number; checkoutUnique: number;
+  orderPlaceUnique: number; productDetailOpenUnique: number;
 }): AdjustTotals {
   return {
     ...t,
@@ -129,14 +137,24 @@ function mapRow(r: ReportRow): AdjustDailyRow {
     cost:          Number(r.cost            ?? 0),
     sessions:      0,
     engagement:    extractEngagement(r),
-    cartAdd:    Number(r[CART_METRIC]     ?? 0),
-    checkout:   Number(r[CHECKOUT_METRIC] ?? 0),
-    orderPlace: Number(r[ORDER_METRIC]    ?? 0),
+    cartAdd:              Number(r[CART_METRIC]           ?? 0),
+    checkout:             Number(r[CHECKOUT_METRIC]       ?? 0),
+    orderPlace:           Number(r[ORDER_METRIC]          ?? 0),
+    productDetailOpen:    Number(r[PRODUCT_DETAIL_METRIC] ?? 0),
+    cartAddUnique:        Number(r[CART_UNIQUE_METRIC]    ?? 0),
+    checkoutUnique:       Number(r[CHECKOUT_UNIQUE_METRIC] ?? 0),
+    orderPlaceUnique:     Number(r[ORDER_UNIQUE_METRIC]   ?? 0),
+    productDetailOpenUnique: Number(r[PRODUCT_UNIQUE_METRIC] ?? 0),
     timeSpent:  0,
   };
 }
 
-type RowSum = { installs: number; clicks: number; impressions: number; cost: number; engagement: number; cartAdd: number; checkout: number; orderPlace: number; timeSpent: number };
+type RowSum = {
+  installs: number; clicks: number; impressions: number; cost: number;
+  engagement: number; cartAdd: number; checkout: number; orderPlace: number; timeSpent: number;
+  productDetailOpen: number; cartAddUnique: number; checkoutUnique: number;
+  orderPlaceUnique: number; productDetailOpenUnique: number;
+};
 
 function sumRows(rows: AdjustDailyRow[]): RowSum {
   return rows.reduce<RowSum>(
@@ -150,8 +168,18 @@ function sumRows(rows: AdjustDailyRow[]): RowSum {
       checkout:    a.checkout    + r.checkout,
       orderPlace:  a.orderPlace  + r.orderPlace,
       timeSpent:   a.timeSpent   + r.timeSpent,
+      productDetailOpen:       a.productDetailOpen       + r.productDetailOpen,
+      cartAddUnique:           a.cartAddUnique           + r.cartAddUnique,
+      checkoutUnique:          a.checkoutUnique          + r.checkoutUnique,
+      orderPlaceUnique:        a.orderPlaceUnique        + r.orderPlaceUnique,
+      productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique,
     }),
-    { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0 },
+    {
+      installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0,
+      cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0,
+      productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0,
+      orderPlaceUnique: 0, productDetailOpenUnique: 0,
+    },
   );
 }
 
@@ -195,6 +223,8 @@ export async function GET(req: Request) {
           token: r.campaignToken, name: r.campaignName, appName: r.appName,
           installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0,
           cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0,
+          productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0,
+          orderPlaceUnique: 0, productDetailOpenUnique: 0,
           cpi: 0, ctr: 0, cpm: 0, cpiEngagement: 0,
         };
         c.installs    += r.installs;
@@ -206,6 +236,11 @@ export async function GET(req: Request) {
         c.checkout    += r.checkout;
         c.orderPlace  += r.orderPlace;
         c.timeSpent   += r.timeSpent;
+        c.productDetailOpen       += r.productDetailOpen;
+        c.cartAddUnique           += r.cartAddUnique;
+        c.checkoutUnique          += r.checkoutUnique;
+        c.orderPlaceUnique        += r.orderPlaceUnique;
+        c.productDetailOpenUnique += r.productDetailOpenUnique;
         campMap.set(key, c);
       }
 
