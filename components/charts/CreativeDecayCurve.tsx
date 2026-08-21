@@ -23,7 +23,7 @@ interface RawPoint {
 
 type Metric = 'ctr' | 'cpa';
 type Window = 14 | 21 | 30;
-type DatePreset = 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
+type DatePreset = 'yesterday' | 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
 
 interface KneeInfo {
   adId: string;
