@@ -51,17 +51,23 @@ function generateMock(): AdjustResponse {
       const checkout    = Math.round(cartAdd    * (0.5 + Math.random() * 0.2));
       const orderPlace  = Math.round(checkout   * (0.6 + Math.random() * 0.2));
       const timeSpent   = Math.round(installs   * (120  + Math.random() * 180));
-      daily.push({ date, appToken: c.appToken, appName: c.appName, campaignToken: c.token, campaignName: c.name, installs, clicks, impressions, cost, sessions: Math.round(installs * (2 + Math.random() * 3)), engagement, cartAdd, checkout, orderPlace, timeSpent });
+      const productDetailOpen = Math.round(engagement * (0.6 + Math.random() * 0.25));
+      const cartAddUnique     = Math.round(cartAdd    * (0.7 + Math.random() * 0.2));
+      const checkoutUnique    = Math.round(checkout   * (0.7 + Math.random() * 0.2));
+      const orderPlaceUnique  = Math.round(orderPlace * (0.7 + Math.random() * 0.2));
+      const productDetailOpenUnique = Math.round(productDetailOpen * (0.7 + Math.random() * 0.2));
+      daily.push({ date, appToken: c.appToken, appName: c.appName, campaignToken: c.token, campaignName: c.name, installs, clicks, impressions, cost, sessions: Math.round(installs * (2 + Math.random() * 3)), engagement, cartAdd, checkout, orderPlace, timeSpent, productDetailOpen, cartAddUnique, checkoutUnique, orderPlaceUnique, productDetailOpenUnique });
     }
   }
+  const ZERO_EXTRA = { productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0 };
   const campSummary: AdjustCampaignSummary[] = campaigns.map((c) => {
     const rows = daily.filter((r) => r.campaignToken === c.token);
-    const t = rows.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0 });
+    const t = rows.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent, productDetailOpen: a.productDetailOpen + r.productDetailOpen, cartAddUnique: a.cartAddUnique + r.cartAddUnique, checkoutUnique: a.checkoutUnique + r.checkoutUnique, orderPlaceUnique: a.orderPlaceUnique + r.orderPlaceUnique, productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, ...ZERO_EXTRA });
     return { token: c.token, name: c.name, appName: c.appName, ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
   });
-  const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0 });
+  const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent, productDetailOpen: a.productDetailOpen + r.productDetailOpen, cartAddUnique: a.cartAddUnique + r.cartAddUnique, checkoutUnique: a.checkoutUnique + r.checkoutUnique, orderPlaceUnique: a.orderPlaceUnique + r.orderPlaceUnique, productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, ...ZERO_EXTRA });
   const totals = { ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
-  const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82), cartAdd: Math.round(totals.cartAdd * 0.80), checkout: Math.round(totals.checkout * 0.80), orderPlace: Math.round(totals.orderPlace * 0.80), timeSpent: totals.timeSpent * 0.95 };
+  const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82), cartAdd: Math.round(totals.cartAdd * 0.80), checkout: Math.round(totals.checkout * 0.80), orderPlace: Math.round(totals.orderPlace * 0.80), timeSpent: totals.timeSpent * 0.95, productDetailOpen: Math.round(totals.productDetailOpen * 0.80), cartAddUnique: Math.round(totals.cartAddUnique * 0.80), checkoutUnique: Math.round(totals.checkoutUnique * 0.80), orderPlaceUnique: Math.round(totals.orderPlaceUnique * 0.80), productDetailOpenUnique: Math.round(totals.productDetailOpenUnique * 0.80) };
   return { daily, campaigns: campSummary, totals, prevTotals, apps, currency: 'USD' };
 }
 
@@ -501,8 +507,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     if (!data) return null;
     const camps = showGenericOnly ? filteredPaidCampaigns : enrichedPaidCampaigns;
     const sum = camps.reduce(
-      (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement, cartAdd: s.cartAdd + (c.cartAdd ?? 0), checkout: s.checkout + (c.checkout ?? 0), orderPlace: s.orderPlace + (c.orderPlace ?? 0), timeSpent: s.timeSpent + (c.timeSpent ?? 0) }),
-      { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0 }
+      (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement, cartAdd: s.cartAdd + (c.cartAdd ?? 0), checkout: s.checkout + (c.checkout ?? 0), orderPlace: s.orderPlace + (c.orderPlace ?? 0), timeSpent: s.timeSpent + (c.timeSpent ?? 0), productDetailOpen: s.productDetailOpen + (c.productDetailOpen ?? 0), cartAddUnique: s.cartAddUnique + (c.cartAddUnique ?? 0), checkoutUnique: s.checkoutUnique + (c.checkoutUnique ?? 0), orderPlaceUnique: s.orderPlaceUnique + (c.orderPlaceUnique ?? 0), productDetailOpenUnique: s.productDetailOpenUnique + (c.productDetailOpenUnique ?? 0) }),
+      { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0 }
     );
     return { ...sum, sessions: 0, cpi: sum.installs > 0 ? sum.cost / sum.installs : 0, ctr: sum.impressions > 0 ? sum.clicks / sum.impressions : 0, cpm: sum.impressions > 0 ? (sum.cost / sum.impressions) * 1000 : 0, cpiEngagement: sum.engagement > 0 ? sum.cost / sum.engagement : 0 };
   }, [data, showGenericOnly, enrichedPaidCampaigns, filteredPaidCampaigns]);
@@ -677,6 +683,58 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         cpiEngagement:   g.engagement  > 0 ? g.cost        / g.engagement  : 0,
       };
     }).filter((g) => g.impressions > 0 || g.installs > 0);
+  }, [enrichedPaidCampaigns]);
+
+  // ── Creative Funnel : Generic vs Iconic ──────────────────────────────────
+  const creativeVsIconic = useMemo(() => {
+    const genericCamps = enrichedPaidCampaigns.filter((c) => c.name.toLowerCase().includes('generic'));
+    const iconicCamps  = enrichedPaidCampaigns.filter((c) => c.name.toLowerCase().includes('iconic'));
+
+    function sumCamps(camps: AdjustCampaignSummary[]) {
+      const z = { impressions: 0, clicks: 0, installs: 0, engagement: 0, cost: 0,
+        cartAdd: 0, checkout: 0, orderPlace: 0,
+        productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0 };
+      for (const c of camps) {
+        z.impressions           += c.impressions;
+        z.clicks                += c.clicks;
+        z.installs              += c.installs;
+        z.engagement            += c.engagement;
+        z.cost                  += c.cost;
+        z.cartAdd               += (c.cartAdd    ?? 0);
+        z.checkout              += (c.checkout   ?? 0);
+        z.orderPlace            += (c.orderPlace ?? 0);
+        z.productDetailOpen        += (c.productDetailOpen        ?? 0);
+        z.cartAddUnique            += (c.cartAddUnique            ?? 0);
+        z.checkoutUnique           += (c.checkoutUnique           ?? 0);
+        z.orderPlaceUnique         += (c.orderPlaceUnique         ?? 0);
+        z.productDetailOpenUnique  += (c.productDetailOpenUnique  ?? 0);
+      }
+      return {
+        ...z,
+        cpm:           z.impressions > 0 ? (z.cost / z.impressions) * 1000 : 0,
+        ctr:           z.impressions > 0 ? z.clicks / z.impressions : 0,
+        installRate:   z.clicks      > 0 ? z.installs / z.clicks      : 0,
+        cpi:           z.installs    > 0 ? z.cost / z.installs    : 0,
+        cpiEngagement: z.engagement  > 0 ? z.cost / z.engagement  : 0,
+        engRate:       z.installs    > 0 ? z.engagement / z.installs : 0,
+        pdRate:        z.installs    > 0 ? z.productDetailOpen / z.installs : 0,
+        pdUniqueRate:  z.installs    > 0 ? z.productDetailOpenUnique / z.installs : 0,
+        cartRate:      z.engagement  > 0 ? z.cartAdd / z.engagement  : 0,
+        cartUniqueRate:z.engagement  > 0 ? z.cartAddUnique / z.engagement : 0,
+        coRate:        z.cartAdd     > 0 ? z.checkout / z.cartAdd    : 0,
+        coUniqueRate:  z.cartAddUnique > 0 ? z.checkoutUnique / z.cartAddUnique : 0,
+        ordRate:       z.checkout    > 0 ? z.orderPlace / z.checkout : 0,
+        ordUniqueRate: z.checkoutUnique > 0 ? z.orderPlaceUnique / z.checkoutUnique : 0,
+        count: camps.length,
+        names: camps.map((c) => c.name),
+      };
+    }
+
+    return {
+      generic: sumCamps(genericCamps),
+      iconic:  sumCamps(iconicCamps),
+      hasData: genericCamps.length > 0 || iconicCamps.length > 0,
+    };
   }, [enrichedPaidCampaigns]);
 
   // ── Budget change reference lines — grouped by date ─────────────────────
@@ -1483,6 +1541,172 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                   </div>
                 );
               })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 10. Creative Funnel — Generic vs Iconic */}
+      {creativeVsIconic.hasData && (() => {
+        const { generic: G, iconic: IC } = creativeVsIconic;
+
+        type Col = 'generic' | 'iconic';
+        type FunnelStep = {
+          label: string;
+          sub?: string;
+          getG: (s: typeof G) => string;
+          getI: (s: typeof IC) => string;
+          note?: string;
+          divider?: boolean;
+        };
+
+        const fmtRate = (v: number) => v > 0 ? `${(v * 100).toFixed(1)}%` : '—';
+        const fmtCost = (v: number) => v > 0 ? `$${v.toFixed(2)}` : '—';
+        const fmtN    = (v: number) => v > 0 ? (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`) : '—';
+
+        const steps: FunnelStep[] = [
+          { label: 'CPM',               getG: (s) => fmtCost(s.cpm),                        getI: (s) => fmtCost(s.cpm),                        note: 'Coût pour 1 000 impressions' },
+          { label: 'CTR',               getG: (s) => fmtRate(s.ctr),                        getI: (s) => fmtRate(s.ctr),                        note: 'Clics / Impressions' },
+          { label: 'CPI',               getG: (s) => fmtCost(s.cpi),                        getI: (s) => fmtCost(s.cpi),                        note: 'Coût par install', divider: true },
+          { label: 'CPI Engagé',        getG: (s) => fmtCost(s.cpiEngagement),              getI: (s) => fmtCost(s.cpiEngagement),              note: 'Coût par engagement' },
+          { label: 'Taux engagement',   getG: (s) => fmtRate(s.engRate),                    getI: (s) => fmtRate(s.engRate),                    note: 'Engagement / Installs', divider: true },
+          { label: 'Product Detail',    sub: 'Non-unique', getG: (s) => fmtN(s.productDetailOpen),         getI: (s) => fmtN(s.productDetailOpen),         note: 'Vues produit' },
+          { label: '',                  sub: 'Unique',     getG: (s) => fmtN(s.productDetailOpenUnique),   getI: (s) => fmtN(s.productDetailOpenUnique),   note: 'Vues produit uniques' },
+          { label: 'Taux PD',           sub: 'Unique',     getG: (s) => fmtRate(s.pdUniqueRate),           getI: (s) => fmtRate(s.pdUniqueRate),           note: 'PD unique / Installs', divider: true },
+          { label: 'Panier',            sub: 'Non-unique', getG: (s) => fmtN(s.cartAdd),                   getI: (s) => fmtN(s.cartAdd),                   note: 'Add to Cart' },
+          { label: '',                  sub: 'Unique',     getG: (s) => fmtN(s.cartAddUnique),             getI: (s) => fmtN(s.cartAddUnique),             note: 'Add to Cart unique' },
+          { label: 'Checkout',          sub: 'Non-unique', getG: (s) => fmtN(s.checkout),                  getI: (s) => fmtN(s.checkout),                  note: 'Checkout' },
+          { label: '',                  sub: 'Unique',     getG: (s) => fmtN(s.checkoutUnique),            getI: (s) => fmtN(s.checkoutUnique),            note: 'Checkout unique' },
+          { label: 'Order',             sub: 'Non-unique', getG: (s) => fmtN(s.orderPlace),                getI: (s) => fmtN(s.orderPlace),                note: 'Order Placed', divider: true },
+          { label: '',                  sub: 'Unique',     getG: (s) => fmtN(s.orderPlaceUnique),          getI: (s) => fmtN(s.orderPlaceUnique),          note: 'Order Placed unique' },
+          { label: 'Taux Order',        sub: 'Non-unique', getG: (s) => fmtRate(s.ordRate),                getI: (s) => fmtRate(s.ordRate),                note: 'Order / Checkout' },
+          { label: '',                  sub: 'Unique',     getG: (s) => fmtRate(s.ordUniqueRate),          getI: (s) => fmtRate(s.ordUniqueRate),          note: 'Order unique / Checkout unique' },
+        ];
+
+        const lowerBetter = new Set(['CPM', 'CPI', 'CPI Engagé']);
+        function winner(label: string, gVal: string, iVal: string): Col | null {
+          const g = parseFloat(gVal.replace(/[$%k]/g, ''));
+          const i = parseFloat(iVal.replace(/[$%k]/g, ''));
+          if (isNaN(g) || isNaN(i) || g === 0 || i === 0) return null;
+          if (lowerBetter.has(label)) return g < i ? 'generic' : 'iconic';
+          return g > i ? 'generic' : 'iconic';
+        }
+
+        const GENERIC_COLOR = '#f59e0b';
+        const ICONIC_COLOR  = '#8b5cf6';
+
+        return (
+          <div className="space-y-4 mt-2">
+            <div className="flex items-center gap-3">
+              <h2 className="text-sm font-bold text-gray-900">Funnel Créatifs</h2>
+              <span className="text-xs text-gray-400">Generic vs Iconic — events non-uniques (historique) et uniques (tracking plan)</span>
+            </div>
+
+            <div className="flex gap-6 text-xs flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: GENERIC_COLOR }} />
+                <span className="font-semibold text-amber-700">Generic</span>
+                <span className="text-gray-400">({G.count} campagne{G.count > 1 ? 's' : ''})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: ICONIC_COLOR }} />
+                <span className="font-semibold text-violet-700">Iconic</span>
+                <span className="text-gray-400">({IC.count} campagne{IC.count > 1 ? 's' : ''})</span>
+              </div>
+              <div className="flex items-center gap-1.5 ml-4">
+                <span className="text-green-500 font-bold text-[11px]">★</span>
+                <span className="text-gray-400">= meilleur sur la ligne</span>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+              <table className="min-w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-4 py-3 text-left font-semibold text-gray-500 uppercase tracking-wide w-36">Métrique</th>
+                    <th className="px-3 py-3 text-center font-semibold text-gray-400 text-[10px] w-24">Type</th>
+                    <th className="px-4 py-3 text-center w-44">
+                      <span className="inline-flex items-center gap-1.5 font-bold text-amber-700">
+                        <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: GENERIC_COLOR }} />
+                        Generic
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-center w-44">
+                      <span className="inline-flex items-center gap-1.5 font-bold text-violet-700">
+                        <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: ICONIC_COLOR }} />
+                        Iconic
+                      </span>
+                    </th>
+                    <th className="px-4 py-3 text-left text-gray-400 font-normal hidden sm:table-cell">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {steps.map((step, si) => {
+                    const gVal = step.getG(G);
+                    const iVal = step.getI(IC);
+                    const effectiveLabel = step.label || (si > 0 ? steps.slice(0, si).reverse().find((s) => s.label)?.label ?? '' : '');
+                    const win = winner(effectiveLabel, gVal, iVal);
+                    const isSubRow = !step.label;
+
+                    return (
+                      <tr
+                        key={si}
+                        className={[
+                          step.divider && si < steps.length - 1 ? 'border-b-2 border-gray-200' : 'border-b border-gray-50',
+                          isSubRow ? 'bg-gray-50/30' : si % 2 === 0 ? '' : 'bg-gray-50/10',
+                        ].join(' ')}
+                      >
+                        <td className={`px-4 py-2 font-semibold ${isSubRow ? 'text-gray-400 text-[10px] pl-8' : 'text-gray-700'}`}>
+                          {step.label}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {step.sub && (
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                              step.sub === 'Unique'
+                                ? 'bg-indigo-50 text-indigo-600'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {step.sub}
+                            </span>
+                          )}
+                        </td>
+                        <td className={`px-4 py-2 text-center font-mono ${
+                          win === 'generic'
+                            ? 'font-bold text-amber-700 bg-amber-50/60'
+                            : gVal === '—' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                          {win === 'generic' && <span className="mr-1 text-green-500">★</span>}
+                          {gVal}
+                        </td>
+                        <td className={`px-4 py-2 text-center font-mono ${
+                          win === 'iconic'
+                            ? 'font-bold text-violet-700 bg-violet-50/60'
+                            : iVal === '—' ? 'text-gray-300' : 'text-gray-700'
+                        }`}>
+                          {win === 'iconic' && <span className="mr-1 text-green-500">★</span>}
+                          {iVal}
+                        </td>
+                        <td className="px-4 py-2 text-gray-400 hidden sm:table-cell">{step.note ?? ''}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex gap-8 text-[10px] text-gray-400 flex-wrap">
+              {G.count > 0 && (
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-semibold text-amber-600">Generic :</span>
+                  <span>{G.names.map((n) => n.replace(/^Picta_/i, '')).join(', ')}</span>
+                </div>
+              )}
+              {IC.count > 0 && (
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-semibold text-violet-600">Iconic :</span>
+                  <span>{IC.names.map((n) => n.replace(/^Picta_/i, '')).join(', ')}</span>
+                </div>
+              )}
             </div>
           </div>
         );
