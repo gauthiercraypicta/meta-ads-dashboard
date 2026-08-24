@@ -74,7 +74,7 @@ export async function GET(req: Request) {
   const until = fmt(new Date(today.getTime() - 86_400_000));
 
   let since: string;
-  const days: Record<string, number> = { last_7d: 7, last_30d: 30, last_90d: 90 };
+  const days: Record<string, number> = { last_3d: 3, last_7d: 7, last_30d: 30, last_90d: 90 };
   if (datePreset === 'yesterday') {
     since = until; // since = until = yesterday
   } else if (datePreset === 'since_dec_1') {

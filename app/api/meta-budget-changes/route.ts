@@ -37,7 +37,7 @@ export async function GET(req: Request) {
   const datePreset = searchParams.get('date_preset') ?? 'last_30d';
 
   const today = new Date();
-  const days: Record<string, number> = { yesterday: 1, last_7d: 7, last_30d: 30, last_90d: 90 };
+  const days: Record<string, number> = { yesterday: 1, last_3d: 3, last_7d: 7, last_30d: 30, last_90d: 90 };
   const daysBack = datePreset === 'since_dec_1' ? 270 : (days[datePreset] ?? 30);
   const since = Math.floor((today.getTime() - daysBack * 86_400_000) / 1000);
 

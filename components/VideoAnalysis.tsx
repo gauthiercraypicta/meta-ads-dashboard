@@ -11,7 +11,7 @@ import type { AdData, AdInsight, AdInsightAction } from '@/types/creative';
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface Props {
   refreshKey?: number;
-  datePreset?: 'yesterday' | 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
+  datePreset?: 'yesterday' | 'last_3d' | 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
 }
 
 interface VideoRow {
