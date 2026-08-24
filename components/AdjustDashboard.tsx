@@ -2043,7 +2043,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                     </thead>
                     <tbody>
                       {funnelRows.map((d, i) => {
-                        const abandon = d.cartAddUnique - d.orderPlaceUnique;
+                        const abandon      = d.cartAddUnique - d.orderPlaceUnique;
+                        const cartRate     = d.engagement    > 0 ? d.cartAddUnique   / d.engagement    : null;
+                        const abandonRate  = d.cartAddUnique > 0 ? abandon            / d.cartAddUnique : null;
+                        const coRate       = d.cartAddUnique > 0 ? d.checkoutUnique   / d.cartAddUnique : null;
+                        const orderRate    = d.checkoutUnique > 0 ? d.orderPlaceUnique / d.checkoutUnique : null;
+                        const pct = (r: number | null) => r !== null ? `${(r * 100).toFixed(1)}%` : null;
                         return (
                           <tr key={d.date} className={`border-b border-gray-50 ${i % 2 ? 'bg-gray-50/40' : ''}`}>
                             <td className={`${tdBase} text-[10px] text-gray-400 text-left`}>{fmtDate(d.date)}</td>
@@ -2051,26 +2056,59 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                             <td className={`${tdBase} text-right text-amber-600 font-semibold`}>{d.cost > 0 ? `$${Math.round(d.cost)}` : '—'}</td>
                             <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(d.installs)}</td>
                             <td className={`${tdBase} text-right text-purple-500 font-semibold`}>{fmtNum(d.engagement)}</td>
-                            <td className={`${tdBase} text-right text-teal-500 font-semibold`}>{d.cartAddUnique || '—'}</td>
-                            <td className={`${tdBase} text-right text-red-400 font-semibold`}>{abandon > 0 ? abandon : '—'}</td>
-                            <td className={`${tdBase} text-right text-teal-600`}>{d.checkoutUnique || '—'}</td>
-                            <td className={`${tdBase} text-right text-green-500 font-bold`}>{d.orderPlaceUnique || '—'}</td>
+                            <td className={`${tdBase} text-right text-teal-500 font-semibold`}>
+                              <div>{d.cartAddUnique || '—'}</div>
+                              {pct(cartRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(cartRate)} des qual.</div>}
+                            </td>
+                            <td className={`${tdBase} text-right text-red-400 font-semibold`}>
+                              <div>{abandon > 0 ? abandon : '—'}</div>
+                              {pct(abandonRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(abandonRate)} du panier</div>}
+                            </td>
+                            <td className={`${tdBase} text-right text-teal-600`}>
+                              <div>{d.checkoutUnique || '—'}</div>
+                              {pct(coRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(coRate)} du panier</div>}
+                            </td>
+                            <td className={`${tdBase} text-right text-green-500 font-bold`}>
+                              <div>{d.orderPlaceUnique || '—'}</div>
+                              {pct(orderRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(orderRate)} du checkout</div>}
+                            </td>
                           </tr>
                         );
                       })}
 
                       {/* Funnel total */}
-                      <tr className="bg-gray-50 border-t border-gray-200 font-bold">
-                        <td className="px-3 py-2 text-gray-700 text-left">Total</td>
-                        <td className="px-3 py-2 text-gray-400 text-[10px] text-left">{funnelRows.length}j</td>
-                        <td className={`${tdBase} text-right text-amber-600`}>${Math.round(fTotalCost)}</td>
-                        <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(fTotalInst)}</td>
-                        <td className={`${tdBase} text-right text-purple-500`}>{fmtNum(fTotalEng)}</td>
-                        <td className={`${tdBase} text-right text-teal-500`}>{fTotalCart}</td>
-                        <td className={`${tdBase} text-right text-red-400`}>{fTotalCart - fTotalOrder}</td>
-                        <td className={`${tdBase} text-right text-teal-600`}>{fTotalCo}</td>
-                        <td className={`${tdBase} text-right text-green-500`}>{fTotalOrder}</td>
-                      </tr>
+                      {(() => {
+                        const tCartRate  = fTotalEng   > 0 ? fTotalCart              / fTotalEng   : null;
+                        const tAbandRate = fTotalCart  > 0 ? (fTotalCart - fTotalOrder) / fTotalCart : null;
+                        const tCoRate    = fTotalCart  > 0 ? fTotalCo                / fTotalCart  : null;
+                        const tOrdRate   = fTotalCo    > 0 ? fTotalOrder             / fTotalCo    : null;
+                        const pct = (r: number | null) => r !== null ? `${(r * 100).toFixed(1)}%` : null;
+                        return (
+                          <tr className="bg-gray-50 border-t border-gray-200 font-bold">
+                            <td className="px-3 py-2 text-gray-700 text-left">Total</td>
+                            <td className="px-3 py-2 text-gray-400 text-[10px] text-left">{funnelRows.length}j</td>
+                            <td className={`${tdBase} text-right text-amber-600`}>${Math.round(fTotalCost)}</td>
+                            <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(fTotalInst)}</td>
+                            <td className={`${tdBase} text-right text-purple-500`}>{fmtNum(fTotalEng)}</td>
+                            <td className={`${tdBase} text-right text-teal-500`}>
+                              <div>{fTotalCart}</div>
+                              {pct(tCartRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tCartRate)} des qual.</div>}
+                            </td>
+                            <td className={`${tdBase} text-right text-red-400`}>
+                              <div>{fTotalCart - fTotalOrder}</div>
+                              {pct(tAbandRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tAbandRate)} du panier</div>}
+                            </td>
+                            <td className={`${tdBase} text-right text-teal-600`}>
+                              <div>{fTotalCo}</div>
+                              {pct(tCoRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tCoRate)} du panier</div>}
+                            </td>
+                            <td className={`${tdBase} text-right text-green-500`}>
+                              <div>{fTotalOrder}</div>
+                              {pct(tOrdRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tOrdRate)} du checkout</div>}
+                            </td>
+                          </tr>
+                        );
+                      })()}
                     </tbody>
                   </table>
                 </div>
