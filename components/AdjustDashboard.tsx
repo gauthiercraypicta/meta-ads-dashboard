@@ -843,7 +843,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       rows = rows.filter((r) => genericTokens.has(r.campaignToken));
     }
     const map = new Map<string, {
-      date: string; installs: number; cost: number; engagement: number;
+      date: string; installs: number; clicks: number; cost: number; engagement: number;
       cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number;
     }>();
     for (const r of rows) {
@@ -851,12 +851,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       if (!e) {
         map.set(r.date, {
           date: r.date,
-          installs: r.installs, cost: r.cost, engagement: r.engagement,
+          installs: r.installs, clicks: r.clicks ?? 0, cost: r.cost, engagement: r.engagement,
           cartAddUnique: r.cartAddUnique ?? 0, checkoutUnique: r.checkoutUnique ?? 0,
           orderPlaceUnique: r.orderPlaceUnique ?? 0,
         });
       } else {
-        e.installs += r.installs; e.cost += r.cost; e.engagement += r.engagement;
+        e.installs += r.installs; e.clicks += r.clicks ?? 0; e.cost += r.cost; e.engagement += r.engagement;
         e.cartAddUnique += r.cartAddUnique ?? 0; e.checkoutUnique += r.checkoutUnique ?? 0;
         e.orderPlaceUnique += r.orderPlaceUnique ?? 0;
       }
@@ -1939,6 +1939,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         const getDow = (dateStr: string) => DOW[new Date(dateStr + 'T12:00:00').getDay()];
 
         const totalCost       = dailyAggByDate.reduce((s, d) => s + d.cost, 0);
+        const totalClicks     = dailyAggByDate.reduce((s, d) => s + d.clicks, 0);
         const totalInstalls   = dailyAggByDate.reduce((s, d) => s + d.installs, 0);
         const totalEngagement = dailyAggByDate.reduce((s, d) => s + d.engagement, 0);
 
@@ -1950,8 +1951,6 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         const fTotalCo     = funnelRows.reduce((s, d) => s + d.checkoutUnique, 0);
         const fTotalOrder  = funnelRows.reduce((s, d) => s + d.orderPlaceUnique, 0);
 
-        const campsBySpend = [...filteredPaidCampaigns].sort((a, b) => b.cost - a.cost);
-
         const thHead = 'px-3 py-2 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap';
         const tdBase = 'px-3 py-2 font-mono whitespace-nowrap';
 
@@ -1961,9 +1960,9 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
               §12 — Performance journalière
             </h3>
 
-            {/* Table 1: Spend / Downloads / Qualifiés — tous les jours */}
+            {/* Table 1: Spend / Clics / Downloads / Qualifiés — tous les jours */}
             <div>
-              <p className="text-[10px] text-gray-400 mb-2">Spend Meta · Downloads · Qualifiés — toute la période</p>
+              <p className="text-[10px] text-gray-400 mb-2">Spend Meta · Clics · Downloads · Qualifiés — toute la période</p>
               <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
                 <table className="min-w-full text-xs">
                   <thead>
@@ -1971,51 +1970,56 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                       <th className={`${thHead} text-left text-gray-400`}>Date</th>
                       <th className={`${thHead} text-left text-gray-400`}>Jour</th>
                       <th className={`${thHead} text-right text-amber-600`}>Spend</th>
+                      <th className={`${thHead} text-right text-sky-500`}>Clics</th>
                       <th className={`${thHead} text-right text-blue-500`}>Downloads</th>
                       <th className={`${thHead} text-right text-purple-500`}>Qualifiés</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {dailyAggByDate.map((d, i) => (
-                      <tr key={d.date} className={`border-b border-gray-50 ${i % 2 ? 'bg-gray-50/40' : ''}`}>
-                        <td className={`${tdBase} text-[10px] text-gray-400 text-left`}>{fmtDate(d.date)}</td>
-                        <td className="px-3 py-2 text-gray-600 font-medium text-left">{getDow(d.date)}</td>
-                        <td className={`${tdBase} text-right text-amber-600 font-semibold`}>{d.cost > 0 ? `$${Math.round(d.cost)}` : '—'}</td>
-                        <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(d.installs)}</td>
-                        <td className={`${tdBase} text-right text-purple-500 font-semibold`}>{fmtNum(d.engagement)}</td>
-                      </tr>
-                    ))}
-
-                    {/* Macro total */}
-                    <tr className="bg-gray-50 border-t border-gray-200 font-bold">
-                      <td className="px-3 py-2 text-gray-700 text-left">Total</td>
-                      <td className="px-3 py-2 text-gray-400 text-[10px] text-left">Macro</td>
-                      <td className={`${tdBase} text-right text-amber-600`}>${Math.round(totalCost)}</td>
-                      <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(totalInstalls)}</td>
-                      <td className={`${tdBase} text-right text-purple-500`}>{fmtNum(totalEngagement)}</td>
-                    </tr>
-
-                    {/* Per-campaign rows */}
-                    {campsBySpend.length > 0 && (
-                      <>
-                        <tr className="bg-gray-50/50 border-t border-gray-100">
-                          <td colSpan={5} className="px-3 py-1.5 text-[9px] font-bold text-gray-400 uppercase tracking-wider">
-                            Détail par campagne
+                    {dailyAggByDate.map((d, i) => {
+                      const dlRate  = d.clicks    > 0 ? d.installs   / d.clicks    : null;
+                      const qualRate = d.installs  > 0 ? d.engagement / d.installs  : null;
+                      const pct = (r: number | null) => r !== null ? `${(r * 100).toFixed(1)}%` : null;
+                      return (
+                        <tr key={d.date} className={`border-b border-gray-50 ${i % 2 ? 'bg-gray-50/40' : ''}`}>
+                          <td className={`${tdBase} text-[10px] text-gray-400 text-left`}>{fmtDate(d.date)}</td>
+                          <td className="px-3 py-2 text-gray-600 font-medium text-left">{getDow(d.date)}</td>
+                          <td className={`${tdBase} text-right text-amber-600 font-semibold`}>{d.cost > 0 ? `$${Math.round(d.cost)}` : '—'}</td>
+                          <td className={`${tdBase} text-right text-sky-500`}>{fmtNum(d.clicks)}</td>
+                          <td className={`${tdBase} text-right text-blue-500`}>
+                            <div>{fmtNum(d.installs)}</div>
+                            {pct(dlRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(dlRate)} des clics</div>}
+                          </td>
+                          <td className={`${tdBase} text-right text-purple-500 font-semibold`}>
+                            <div>{fmtNum(d.engagement)}</div>
+                            {pct(qualRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(qualRate)} des DL</div>}
                           </td>
                         </tr>
-                        {campsBySpend.map((c) => (
-                          <tr key={c.token} className="border-t border-gray-50 hover:bg-gray-50/60">
-                            <td className="px-3 py-1.5 text-gray-300 text-left pl-6">↳</td>
-                            <td className="px-3 py-1.5 text-gray-500 text-[10px] font-medium text-left max-w-[200px] truncate" title={c.name}>
-                              {c.name.replace(/[_\s]+\d{6,}$/, '')}
-                            </td>
-                            <td className={`${tdBase} text-right text-[10px] text-amber-500`}>{c.cost > 0 ? `$${Math.round(c.cost)}` : '—'}</td>
-                            <td className={`${tdBase} text-right text-[10px] text-blue-400`}>{fmtNum(c.installs)}</td>
-                            <td className={`${tdBase} text-right text-[10px] text-purple-400`}>{fmtNum(c.engagement)}</td>
-                          </tr>
-                        ))}
-                      </>
-                    )}
+                      );
+                    })}
+
+                    {/* Macro total */}
+                    {(() => {
+                      const tDlRate   = totalClicks    > 0 ? totalInstalls   / totalClicks    : null;
+                      const tQualRate = totalInstalls  > 0 ? totalEngagement / totalInstalls  : null;
+                      const pct = (r: number | null) => r !== null ? `${(r * 100).toFixed(1)}%` : null;
+                      return (
+                        <tr className="bg-gray-50 border-t border-gray-200 font-bold">
+                          <td className="px-3 py-2 text-gray-700 text-left">Total</td>
+                          <td className="px-3 py-2 text-gray-400 text-[10px] text-left">Macro</td>
+                          <td className={`${tdBase} text-right text-amber-600`}>${Math.round(totalCost)}</td>
+                          <td className={`${tdBase} text-right text-sky-500`}>{fmtNum(totalClicks)}</td>
+                          <td className={`${tdBase} text-right text-blue-500`}>
+                            <div>{fmtNum(totalInstalls)}</div>
+                            {pct(tDlRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tDlRate)} des clics</div>}
+                          </td>
+                          <td className={`${tdBase} text-right text-purple-500`}>
+                            <div>{fmtNum(totalEngagement)}</div>
+                            {pct(tQualRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tQualRate)} des DL</div>}
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </tbody>
                 </table>
               </div>
