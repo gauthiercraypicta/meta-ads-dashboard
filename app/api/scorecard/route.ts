@@ -29,6 +29,7 @@ function pickPurchase(actions: Action[] | undefined): number {
 // ── Date range helpers ───────────────────────────────────────────────────────
 function getPeriodDays(preset: string): number {
   switch (preset) {
+    case 'last_3d':  return 3;
     case 'last_7d':  return 7;
     case 'last_30d': return 30;
     case 'last_90d': return 90;

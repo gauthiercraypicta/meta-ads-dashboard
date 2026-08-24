@@ -17,7 +17,7 @@ interface RawPoint {
   spend: number;
 }
 
-type DatePreset = 'yesterday' | 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
+type DatePreset = 'yesterday' | 'last_3d' | 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
 
 const PALETTE = [
   '#6366F1', '#3B82F6', '#06B6D4', '#22C55E', '#F59E0B',

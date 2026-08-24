@@ -17,6 +17,7 @@ function toTimeRange(datePreset: string): { since: string; until: string } {
 
   let days: number;
   switch (datePreset) {
+    case 'last_3d':  days = 3;  break;
     case 'last_7d':  days = 7;  break;
     case 'last_90d': days = 90; break;
     case 'last_30d':

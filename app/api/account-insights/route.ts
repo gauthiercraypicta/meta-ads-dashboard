@@ -9,6 +9,7 @@ const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
 function getPeriodDays(datePreset: string): number | null {
   switch (datePreset) {
+    case 'last_3d':  return 3;
     case 'last_7d':  return 7;
     case 'last_30d': return 30;
     case 'last_90d': return 90;

@@ -39,7 +39,7 @@ function getRange(datePreset: string): { start_date: string; end_date: string } 
     return { start_date: yesterday, end_date: yesterday };
   }
   if (datePreset === 'since_dec_1') return { start_date: '2025-12-01', end_date: fmt(today) };
-  const days: Record<string, number> = { last_7d: 7, last_14d: 14, last_30d: 30, last_90d: 90 };
+  const days: Record<string, number> = { last_3d: 3, last_7d: 7, last_14d: 14, last_30d: 30, last_90d: 90 };
   const n = days[datePreset] ?? 30;
   const since = new Date(today);
   since.setDate(today.getDate() - n);

@@ -63,7 +63,7 @@ type DowMetrics = {
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
-type DatePreset = 'yesterday' | 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
+type DatePreset = 'yesterday' | 'last_3d' | 'last_7d' | 'last_30d' | 'last_90d' | 'since_dec_1';
 
 interface Props {
   dailyData: InsightData[] | null;
@@ -83,6 +83,7 @@ export default function WeekHeatmap({ dailyData, datePreset = 'last_30d' }: Prop
     const cutoff = new Date();
     const daysMap: Record<DatePreset, number> = {
       yesterday: 1,
+      last_3d: 3,
       last_7d: 7,
       last_30d: 30,
       last_90d: 90,

@@ -306,6 +306,7 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
     { key: 'appName',    label: 'App',               fmt: (c) => c.appName },
     // ── Top of funnel ─────────────────────────────────────────────────────────
     { key: 'impressions', label: 'Impressions',      fmt: (c) => fmtNum(c.impressions) },
+    { key: 'cpm',         label: 'CPM',              fmt: (c) => c.impressions > 0 ? fmtMoney(c.cpm) : '—' },
     { key: 'clicks',      label: 'Clics',            fmt: (c) => fmtNum(c.clicks) },
     { key: 'ctr',         label: 'CTR (Clic/Impr.)', fmt: (c) => c.impressions > 0 ? fmtPct(c.ctr) : '—' },
     // ── Install ───────────────────────────────────────────────────────────────
@@ -318,7 +319,6 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
     { key: 'cost',        label: 'Coût',             fmt: (c) => Number(c.cost ?? 0) > 0 ? `$${Math.round(Number(c.cost))}` : '—' },
     { key: 'cpi',         label: 'CPI ($/Install)',  fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
     { key: 'cpiEngagement', label: 'CPI Qual. ($/Qual.)', fmt: (c) => c.cpiEngagement > 0 ? fmtMoney(c.cpiEngagement) : '—' },
-    { key: 'cpm',         label: 'CPM',              fmt: (c) => c.impressions > 0 ? fmtMoney(c.cpm) : '—' },
   ];
   if (!campaigns.length) return <p className="text-sm text-gray-400 py-6 text-center">Aucune campagne.</p>;
   return (
@@ -372,6 +372,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const [budgetChanges,     setBudgetChanges]     = useState<Array<{ date: string; campaignId: string; campaignName: string; oldBudget: number; newBudget: number }>>([]);
   const [funnelRateKey,     setFunnelRateKey]     = useState<string>('engRate');
   const [funnelGroupFilter, setFunnelGroupFilter] = useState<string>('all');
+  const [kpiSegment,        setKpiSegment]        = useState<'all' | 'generic' | 'iconic' | 'other_paid' | 'noncamp'>('all');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -463,13 +464,35 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   }, [metaDailyRaw]);
 
   // ── 3. Enriched campaigns — Meta spend injected for $0-cost campaigns ─────
+  // De-duplication: when two $0-cost Adjust campaigns share the same normCampName
+  // (e.g. Landing + Web both strip to the same token), only the first one gets the
+  // Meta spend — subsequent same-norm campaigns keep $0 so spend isn't double-counted.
   const enrichedPaidCampaigns = useMemo(() => {
+    const usedNorms = new Set<string>();
     const result = paidCampaigns.map(c => {
       if (c.cost > 0) return c;
       const norm = normCampName(c.name);
-      let metaCost = (metaEnrichment.byId.get(c.token) ?? 0) ||
-                     (metaEnrichment.byNorm.get(norm) ?? 0);
-      // Fallback: prefix containment handles minor renames (e.g. _perf suffix added on one side)
+
+      // Check direct token match first (always unique, safe to use)
+      const byIdCost = metaEnrichment.byId.get(c.token) ?? 0;
+      if (byIdCost > 0) {
+        console.log(`[enrich] HIT(id) — "${c.name}" → $${byIdCost.toFixed(2)}`);
+        return {
+          ...c, cost: byIdCost,
+          cpi:           c.installs    > 0 ? byIdCost / c.installs    : 0,
+          cpm:           c.impressions > 0 ? (byIdCost / c.impressions) * 1000 : 0,
+          cpiEngagement: c.engagement  > 0 ? byIdCost / c.engagement  : 0,
+        };
+      }
+
+      // Norm-based match — deduplicate: skip if this norm was already enriched
+      if (usedNorms.has(norm)) {
+        console.log(`[enrich] DEDUP — "${c.name}" norm:"${norm}" already enriched, skipping`);
+        return c;
+      }
+
+      let metaCost = metaEnrichment.byNorm.get(norm) ?? 0;
+      // Fallback: prefix containment handles minor renames (e.g. _perf suffix)
       if (metaCost === 0 && norm.length >= 10) {
         for (const [metaNorm, spend] of metaEnrichment.byNorm) {
           if (metaNorm.length >= 10 && (metaNorm.startsWith(norm) || norm.startsWith(metaNorm))) {
@@ -483,7 +506,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         console.log(`[enrich] MISS — token:"${c.token}" name:"${c.name}" norm:"${norm}"`);
         return c;
       }
-      console.log(`[enrich] HIT  — "${c.name}" → $${metaCost.toFixed(2)}`);
+      usedNorms.add(norm);
+      console.log(`[enrich] HIT(norm) — "${c.name}" norm:"${norm}" → $${metaCost.toFixed(2)}`);
       return {
         ...c, cost: metaCost,
         cpi:           c.installs    > 0 ? metaCost / c.installs    : 0,
@@ -521,6 +545,39 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     );
     return { ...sum, sessions: 0, cpi: sum.installs > 0 ? sum.cost / sum.installs : 0, ctr: sum.impressions > 0 ? sum.clicks / sum.impressions : 0, cpm: sum.impressions > 0 ? (sum.cost / sum.impressions) * 1000 : 0, cpiEngagement: sum.engagement > 0 ? sum.cost / sum.engagement : 0 };
   }, [data, showGenericOnly, enrichedPaidCampaigns, filteredPaidCampaigns]);
+
+  // ── KPI segment totals — for the 4-segment macro filter (KPI cards only) ──
+  const kpiSegmentTotals = useMemo(() => {
+    if (!data || kpiSegment === 'all') return null;
+    function sumCamps(camps: typeof enrichedPaidCampaigns) {
+      const sum = camps.reduce(
+        (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement }),
+        { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 }
+      );
+      return { ...sum, sessions: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0, cpi: sum.installs > 0 ? sum.cost / sum.installs : 0, ctr: sum.impressions > 0 ? sum.clicks / sum.impressions : 0, cpm: sum.impressions > 0 ? (sum.cost / sum.impressions) * 1000 : 0, cpiEngagement: sum.engagement > 0 ? sum.cost / sum.engagement : 0 };
+    }
+    if (kpiSegment === 'generic') {
+      return sumCamps(enrichedPaidCampaigns.filter((c) => c.name.toLowerCase().includes('generic')));
+    }
+    if (kpiSegment === 'iconic') {
+      return sumCamps(enrichedPaidCampaigns.filter((c) => c.name.toLowerCase().includes('iconic')));
+    }
+    if (kpiSegment === 'other_paid') {
+      return sumCamps(enrichedPaidCampaigns.filter((c) => c.cost > 0 && !c.name.toLowerCase().includes('generic') && !c.name.toLowerCase().includes('iconic')));
+    }
+    if (kpiSegment === 'noncamp') {
+      // Organic / non-campaign: Adjust totals minus sum of all enriched paid campaigns
+      const paidSum = enrichedPaidCampaigns.reduce((s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement }), { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 });
+      const t = data.totals;
+      const installs = Math.max(0, t.installs - paidSum.installs);
+      const cost = Math.max(0, t.cost - paidSum.cost);
+      const engagement = Math.max(0, t.engagement - paidSum.engagement);
+      const clicks = Math.max(0, t.clicks - paidSum.clicks);
+      const impressions = Math.max(0, t.impressions - paidSum.impressions);
+      return { installs, cost, engagement, clicks, impressions, sessions: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0, cpi: installs > 0 ? cost / installs : 0, ctr: impressions > 0 ? clicks / impressions : 0, cpm: impressions > 0 ? (cost / impressions) * 1000 : 0, cpiEngagement: engagement > 0 ? cost / engagement : 0 };
+    }
+    return null;
+  }, [data, kpiSegment, enrichedPaidCampaigns]);
 
   // ── 7. Daily chart points — from enriched rows ────────────────────────────
   const dailyPoints = useMemo<DailyPoint[]>(() => {
@@ -908,8 +965,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const avgCpi           = meanOf(dailyPoints, 'cpi');
   const avgCpiEngage     = meanOf(dailyPoints, 'cpiEngagement');
 
-  const effectiveTotals     = displayTotals ?? totals;
-  const effectivePrevTotals = showGenericOnly ? (data?.genericPrevTotals ?? null) : prevTotals;
+  const effectiveTotals     = kpiSegmentTotals ?? displayTotals ?? totals;
+  const effectivePrevTotals = kpiSegment !== 'all' ? null : showGenericOnly ? (data?.genericPrevTotals ?? null) : prevTotals;
 
   const kpis = [
     { label: 'Coût total',       value: effectiveTotals.cost,          prev: effectivePrevTotals?.cost,          display: `$${Number(effectiveTotals.cost ?? 0).toFixed(0)}`, lowerIsBetter: true  },
@@ -1006,6 +1063,21 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           <span>Generic only</span>
           {showGenericOnly && <span className="opacity-80">×</span>}
         </button>
+        {/* KPI segment filter — affects macro KPI cards only, not charts */}
+        <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
+          {([
+            { value: 'all',       label: 'Tous' },
+            { value: 'generic',   label: 'Generic' },
+            { value: 'iconic',    label: 'Iconic' },
+            { value: 'other_paid', label: 'Autres paid' },
+            { value: 'noncamp',   label: 'Non-camp.' },
+          ] as const).map(({ value, label }) => (
+            <button key={value} onClick={() => setKpiSegment(value)}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${kpiSegment === value ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="ml-auto flex gap-0.5 bg-gray-100 rounded-lg p-1">
           {(['day', 'week'] as Granularity[]).map((g) => (
             <button key={g} onClick={() => setGranularity(g)}
@@ -1435,17 +1507,28 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
               ].map(({ title, dataKey, fmt, note }) => {
                 const chartData = metricsForChart(dataKey).filter((d) => d.value > 0);
                 if (!chartData.length) return null;
+                // Shorten labels so they don't overlap (max 8 chars)
+                const labelledData = chartData.map((d) => ({ ...d, shortName: d.name.length > 9 ? d.name.slice(0, 8) + '…' : d.name }));
                 return (
                   <div key={title} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
                     <p className="text-xs font-semibold text-gray-800 mb-0.5">{title}</p>
-                    <p className="text-[10px] text-gray-400 mb-3">{note}</p>
-                    <ResponsiveContainer width="100%" height={120}>
-                      <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
+                    <p className="text-[10px] text-gray-400 mb-1">{note}</p>
+                    {/* Legend strip so full names are readable */}
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
+                      {labelledData.map((d) => (
+                        <span key={d.name} className="flex items-center gap-1 text-[9px] text-gray-500">
+                          <span className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: d.fill }} />
+                          {d.name}
+                        </span>
+                      ))}
+                    </div>
+                    <ResponsiveContainer width="100%" height={110}>
+                      <BarChart data={labelledData} margin={{ top: 14, right: 8, left: 0, bottom: 0 }}>
+                        <XAxis dataKey="shortName" tick={{ fontSize: 9, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
                         <YAxis hide />
-                        <Tooltip formatter={(v: unknown) => [fmt(Number(v)), title]} />
-                        <Bar dataKey="value" radius={[4, 4, 0, 0]} label={{ position: 'top', fontSize: 10, fill: '#374151', formatter: (v: unknown) => fmt(Number(v)) }}>
-                          {chartData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                        <Tooltip formatter={(v: unknown) => [fmt(Number(v)), title]} labelFormatter={(label) => labelledData.find((d) => d.shortName === label)?.name ?? label} />
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]} label={{ position: 'top', fontSize: 9, fill: '#374151', formatter: (v: unknown) => fmt(Number(v)) }}>
+                          {labelledData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
@@ -1617,11 +1700,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
             </div>
 
             {/* Mini bar charts */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
               {[
                 { title: 'Installs',        data: installsChartData,   fmt: (v: number) => String(Math.round(v)) },
                 { title: 'Order Placed',    data: genericFunnel.filter((g) => g.orderPlace > 0).map((g) => ({ platform: g.platform, value: g.orderPlace, fill: g.color })), fmt: (v: number) => String(Math.round(v)) },
                 { title: 'CPI',             data: cpiChartData,        fmt: (v: number) => `$${v.toFixed(2)}` },
+                { title: 'CPI Engagés',     data: genericFunnel.filter((g) => g.cpiEngagement > 0).map((g) => ({ platform: g.platform, value: +g.cpiEngagement.toFixed(2), fill: g.color })), fmt: (v: number) => `$${v.toFixed(2)}` },
                 { title: 'Temps moy./user', data: genericFunnel.filter((g) => g.avgTimeSpent > 0).map((g) => ({ platform: g.platform, value: +(g.avgTimeSpent / 60).toFixed(1), fill: g.color })), fmt: (v: number) => `${v}m` },
               ].map(({ title, data, fmt }) => {
                 if (!data.length) return null;
