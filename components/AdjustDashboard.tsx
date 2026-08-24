@@ -68,8 +68,11 @@ function generateMock(): AdjustResponse {
   const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent, productDetailOpen: a.productDetailOpen + r.productDetailOpen, cartAddUnique: a.cartAddUnique + r.cartAddUnique, checkoutUnique: a.checkoutUnique + r.checkoutUnique, orderPlaceUnique: a.orderPlaceUnique + r.orderPlaceUnique, productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, ...ZERO_EXTRA });
   const totals = { ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
   const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82), cartAdd: Math.round(totals.cartAdd * 0.80), checkout: Math.round(totals.checkout * 0.80), orderPlace: Math.round(totals.orderPlace * 0.80), timeSpent: totals.timeSpent * 0.95, productDetailOpen: Math.round(totals.productDetailOpen * 0.80), cartAddUnique: Math.round(totals.cartAddUnique * 0.80), checkoutUnique: Math.round(totals.checkoutUnique * 0.80), orderPlaceUnique: Math.round(totals.orderPlaceUnique * 0.80), productDetailOpenUnique: Math.round(totals.productDetailOpenUnique * 0.80) };
-  const genericPrevTotals = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.5), cost: prevTotals.cost * 0.5, engagement: Math.round(prevTotals.engagement * 0.5), cpi: prevTotals.cpi * 1.05, cpiEngagement: prevTotals.cpiEngagement * 1.05 };
-  return { daily, campaigns: campSummary, totals, prevTotals, genericPrevTotals, apps, currency: 'USD' };
+  const genericPrevTotals   = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.5), cost: prevTotals.cost * 0.5, engagement: Math.round(prevTotals.engagement * 0.5), cpi: prevTotals.cpi * 1.05, cpiEngagement: prevTotals.cpiEngagement * 1.05 };
+  const iconicPrevTotals    = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.2), cost: prevTotals.cost * 0.2, engagement: Math.round(prevTotals.engagement * 0.2), cpi: prevTotals.cpi * 0.95, cpiEngagement: prevTotals.cpiEngagement * 0.95 };
+  const otherPaidPrevTotals = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.3), cost: prevTotals.cost * 0.3, engagement: Math.round(prevTotals.engagement * 0.3), cpi: prevTotals.cpi * 1.02, cpiEngagement: prevTotals.cpiEngagement * 1.02 };
+  const noncampPrevTotals   = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.15), cost: 0, engagement: Math.round(prevTotals.engagement * 0.1), cpi: 0, cpiEngagement: 0 };
+  return { daily, campaigns: campSummary, totals, prevTotals, genericPrevTotals, iconicPrevTotals, otherPaidPrevTotals, noncampPrevTotals, apps, currency: 'USD' };
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -975,7 +978,13 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const avgCpiEngage     = meanOf(dailyPoints, 'cpiEngagement');
 
   const effectiveTotals     = displayTotals ?? totals;
-  const effectivePrevTotals = (kpiSegment !== 'all') ? null : showGenericOnly ? (data?.genericPrevTotals ?? null) : prevTotals;
+  const effectivePrevTotals = showGenericOnly
+    ? (data?.genericPrevTotals ?? null)
+    : kpiSegment === 'generic'    ? (data?.genericPrevTotals   ?? null)
+    : kpiSegment === 'iconic'     ? (data?.iconicPrevTotals    ?? null)
+    : kpiSegment === 'other_paid' ? (data?.otherPaidPrevTotals ?? null)
+    : kpiSegment === 'noncamp'    ? (data?.noncampPrevTotals   ?? null)
+    : prevTotals;
 
   const kpis = [
     { label: 'Coût total',       value: effectiveTotals.cost,          prev: effectivePrevTotals?.cost,          display: `$${Number(effectiveTotals.cost ?? 0).toFixed(0)}`, lowerIsBetter: true  },

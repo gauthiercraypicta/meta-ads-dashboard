@@ -75,5 +75,8 @@ export interface AdjustResponse {
   prevTotals: AdjustTotals | null;
   apps: { token: string; name: string }[];
   currency: string;
-  genericPrevTotals: AdjustTotals | null;
+  genericPrevTotals:   AdjustTotals | null;
+  iconicPrevTotals:    AdjustTotals | null;
+  otherPaidPrevTotals: AdjustTotals | null;
+  noncampPrevTotals:   AdjustTotals | null;
 }

@@ -263,15 +263,34 @@ export async function GET(req: Request) {
         ? deriveTotals(prevSum)
         : null;
 
-      const genericPrevDail = prevDail.filter((r) => r.campaignName.toLowerCase().includes('generic'));
-      const genericPrevSum  = sumRows(genericPrevDail);
-      const genericPrevTotals = genericPrevSum.installs > 0 || genericPrevSum.cost > 0
-        ? deriveTotals(genericPrevSum)
-        : null;
+      function prevSegment(filter: (r: AdjustDailyRow) => boolean): AdjustTotals | null {
+        const s = sumRows(prevDail.filter(filter));
+        return s.installs > 0 || s.cost > 0 ? deriveTotals(s) : null;
+      }
+
+      const n = (s: string) => s.toLowerCase();
+      const genericPrevTotals   = prevSegment((r) => n(r.campaignName).includes('generic'));
+      const iconicPrevTotals    = prevSegment((r) => n(r.campaignName).includes('iconic'));
+      const otherPaidPrevTotals = prevSegment((r) => r.cost > 0 && !n(r.campaignName).includes('generic') && !n(r.campaignName).includes('iconic'));
+
+      // noncamp: Adjust grand prev total minus rows that have cost (paid campaigns)
+      const paidPrevSum = sumRows(prevDail.filter((r) => r.cost > 0));
+      const noncampPrevInstalls    = Math.max(0, prevSum.installs    - paidPrevSum.installs);
+      const noncampPrevEngagement  = Math.max(0, prevSum.engagement  - paidPrevSum.engagement);
+      const noncampPrevClicks      = Math.max(0, prevSum.clicks      - paidPrevSum.clicks);
+      const noncampPrevImpressions = Math.max(0, prevSum.impressions - paidPrevSum.impressions);
+      const noncampPrevTotals: AdjustTotals | null = noncampPrevInstalls > 0 ? {
+        installs: noncampPrevInstalls, clicks: noncampPrevClicks, impressions: noncampPrevImpressions,
+        cost: 0, sessions: 0, engagement: noncampPrevEngagement,
+        cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0,
+        cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0,
+        cpi: 0, ctr: noncampPrevImpressions > 0 ? noncampPrevClicks / noncampPrevImpressions : 0,
+        cpm: 0, cpiEngagement: 0,
+      } : null;
 
       const apps = [...new Map(daily.map((r) => [r.appToken, { token: r.appToken, name: r.appName }])).values()];
 
-      return { daily, campaigns, totals, prevTotals, genericPrevTotals, apps, currency: 'USD' };
+      return { daily, campaigns, totals, prevTotals, genericPrevTotals, iconicPrevTotals, otherPaidPrevTotals, noncampPrevTotals, apps, currency: 'USD' };
     });
 
     return NextResponse.json(result);
