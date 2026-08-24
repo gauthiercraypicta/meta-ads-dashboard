@@ -530,65 +530,67 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     });
   }, [data, metaEnrichment]);
 
-  // ── 5. Generic filter ─────────────────────────────────────────────────────
-  const filteredPaidCampaigns = useMemo(() =>
-    showGenericOnly ? enrichedPaidCampaigns.filter((c) => isGenericCampaign(c.name)) : enrichedPaidCampaigns
-  , [enrichedPaidCampaigns, showGenericOnly]);
+  // ── 5. Campaign filter — respects both showGenericOnly and kpiSegment ────────
+  // showGenericOnly is the charts/table toggle; kpiSegment is the segment selector.
+  // Both drive the same filteredPaidCampaigns so all downstream (charts, table,
+  // KPI totals) stay consistent without extra memos.
+  const filteredPaidCampaigns = useMemo(() => {
+    if (showGenericOnly) {
+      return enrichedPaidCampaigns.filter((c) => isGenericCampaign(c.name));
+    }
+    const n = (s: string) => s.toLowerCase();
+    if (kpiSegment === 'generic')    return enrichedPaidCampaigns.filter((c) => n(c.name).includes('generic'));
+    if (kpiSegment === 'iconic')     return enrichedPaidCampaigns.filter((c) => n(c.name).includes('iconic'));
+    if (kpiSegment === 'other_paid') return enrichedPaidCampaigns.filter((c) => c.cost > 0 && !n(c.name).includes('generic') && !n(c.name).includes('iconic'));
+    if (kpiSegment === 'noncamp')    return []; // organic traffic — no campaign rows
+    return enrichedPaidCampaigns;
+  }, [enrichedPaidCampaigns, showGenericOnly, kpiSegment]);
 
-  // ── 6. KPI totals — always computed from enriched campaigns ───────────────
+  // ── 6. KPI totals — always derived from filteredPaidCampaigns ────────────
   const displayTotals = useMemo(() => {
     if (!data) return null;
-    const camps = showGenericOnly ? filteredPaidCampaigns : enrichedPaidCampaigns;
-    const sum = camps.reduce(
+    const isFiltered = showGenericOnly || kpiSegment !== 'all';
+    if (!isFiltered) return null; // fall through to raw Adjust totals
+
+    // noncamp: organic = Adjust grand total minus every paid campaign
+    if (kpiSegment === 'noncamp') {
+      const paidSum = enrichedPaidCampaigns.reduce(
+        (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement }),
+        { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 }
+      );
+      const t = data.totals;
+      const installs    = Math.max(0, t.installs    - paidSum.installs);
+      const cost        = Math.max(0, t.cost        - paidSum.cost);
+      const engagement  = Math.max(0, t.engagement  - paidSum.engagement);
+      const clicks      = Math.max(0, t.clicks      - paidSum.clicks);
+      const impressions = Math.max(0, t.impressions - paidSum.impressions);
+      return { installs, cost, engagement, clicks, impressions, sessions: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0, cpi: installs > 0 ? cost / installs : 0, ctr: impressions > 0 ? clicks / impressions : 0, cpm: impressions > 0 ? (cost / impressions) * 1000 : 0, cpiEngagement: engagement > 0 ? cost / engagement : 0 };
+    }
+
+    const sum = filteredPaidCampaigns.reduce(
       (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement, cartAdd: s.cartAdd + (c.cartAdd ?? 0), checkout: s.checkout + (c.checkout ?? 0), orderPlace: s.orderPlace + (c.orderPlace ?? 0), timeSpent: s.timeSpent + (c.timeSpent ?? 0), productDetailOpen: s.productDetailOpen + (c.productDetailOpen ?? 0), cartAddUnique: s.cartAddUnique + (c.cartAddUnique ?? 0), checkoutUnique: s.checkoutUnique + (c.checkoutUnique ?? 0), orderPlaceUnique: s.orderPlaceUnique + (c.orderPlaceUnique ?? 0), productDetailOpenUnique: s.productDetailOpenUnique + (c.productDetailOpenUnique ?? 0) }),
       { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0 }
     );
     return { ...sum, sessions: 0, cpi: sum.installs > 0 ? sum.cost / sum.installs : 0, ctr: sum.impressions > 0 ? sum.clicks / sum.impressions : 0, cpm: sum.impressions > 0 ? (sum.cost / sum.impressions) * 1000 : 0, cpiEngagement: sum.engagement > 0 ? sum.cost / sum.engagement : 0 };
-  }, [data, showGenericOnly, enrichedPaidCampaigns, filteredPaidCampaigns]);
+  }, [data, showGenericOnly, kpiSegment, enrichedPaidCampaigns, filteredPaidCampaigns]);
 
-  // ── KPI segment totals — for the 4-segment macro filter (KPI cards only) ──
-  const kpiSegmentTotals = useMemo(() => {
-    if (!data || kpiSegment === 'all') return null;
-    function sumCamps(camps: typeof enrichedPaidCampaigns) {
-      const sum = camps.reduce(
-        (s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement }),
-        { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 }
-      );
-      return { ...sum, sessions: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0, cpi: sum.installs > 0 ? sum.cost / sum.installs : 0, ctr: sum.impressions > 0 ? sum.clicks / sum.impressions : 0, cpm: sum.impressions > 0 ? (sum.cost / sum.impressions) * 1000 : 0, cpiEngagement: sum.engagement > 0 ? sum.cost / sum.engagement : 0 };
-    }
-    if (kpiSegment === 'generic') {
-      return sumCamps(enrichedPaidCampaigns.filter((c) => c.name.toLowerCase().includes('generic')));
-    }
-    if (kpiSegment === 'iconic') {
-      return sumCamps(enrichedPaidCampaigns.filter((c) => c.name.toLowerCase().includes('iconic')));
-    }
-    if (kpiSegment === 'other_paid') {
-      return sumCamps(enrichedPaidCampaigns.filter((c) => c.cost > 0 && !c.name.toLowerCase().includes('generic') && !c.name.toLowerCase().includes('iconic')));
-    }
-    if (kpiSegment === 'noncamp') {
-      // Organic / non-campaign: Adjust totals minus sum of all enriched paid campaigns
-      const paidSum = enrichedPaidCampaigns.reduce((s, c) => ({ installs: s.installs + c.installs, clicks: s.clicks + c.clicks, impressions: s.impressions + c.impressions, cost: s.cost + c.cost, engagement: s.engagement + c.engagement }), { installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0 });
-      const t = data.totals;
-      const installs = Math.max(0, t.installs - paidSum.installs);
-      const cost = Math.max(0, t.cost - paidSum.cost);
-      const engagement = Math.max(0, t.engagement - paidSum.engagement);
-      const clicks = Math.max(0, t.clicks - paidSum.clicks);
-      const impressions = Math.max(0, t.impressions - paidSum.impressions);
-      return { installs, cost, engagement, clicks, impressions, sessions: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0, cpi: installs > 0 ? cost / installs : 0, ctr: impressions > 0 ? clicks / impressions : 0, cpm: impressions > 0 ? (cost / impressions) * 1000 : 0, cpiEngagement: engagement > 0 ? cost / engagement : 0 };
-    }
-    return null;
-  }, [data, kpiSegment, enrichedPaidCampaigns]);
-
-  // ── 7. Daily chart points — from enriched rows ────────────────────────────
+  // ── 7. Daily chart points — filtered by same segment ─────────────────────
   const dailyPoints = useMemo<DailyPoint[]>(() => {
     let rows = enrichedDailyRows;
-    if (showGenericOnly) {
-      const genericTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
-      rows = enrichedDailyRows.filter((r) => genericTokens.has(r.campaignToken));
+    const isFiltered = showGenericOnly || kpiSegment !== 'all';
+    if (isFiltered) {
+      if (kpiSegment === 'noncamp') {
+        // Show rows NOT belonging to any paid campaign
+        const paidTokens = new Set(enrichedPaidCampaigns.map((c) => c.token));
+        rows = enrichedDailyRows.filter((r) => !paidTokens.has(r.campaignToken));
+      } else {
+        const segTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
+        rows = enrichedDailyRows.filter((r) => segTokens.has(r.campaignToken));
+      }
     }
     const pts = aggregateByDate(rows);
     return granularity === 'week' ? toWeekly(pts) : pts;
-  }, [enrichedDailyRows, filteredPaidCampaigns, granularity, showGenericOnly]);
+  }, [enrichedDailyRows, enrichedPaidCampaigns, filteredPaidCampaigns, granularity, showGenericOnly, kpiSegment]);
 
   const sortedCampaigns = useMemo(() => {
     return [...filteredPaidCampaigns].sort((a, b) => {
@@ -900,10 +902,17 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   // ── Daily aggregation for the weekly performance table ───────────────────
   const dailyAggByDate = useMemo(() => {
+    // Re-use the same segment filtering logic as dailyPoints for consistency
     let rows = enrichedDailyRows;
-    if (showGenericOnly) {
-      const genericTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
-      rows = rows.filter((r) => genericTokens.has(r.campaignToken));
+    const isFiltered = showGenericOnly || kpiSegment !== 'all';
+    if (isFiltered) {
+      if (kpiSegment === 'noncamp') {
+        const paidTokens = new Set(enrichedPaidCampaigns.map((c) => c.token));
+        rows = rows.filter((r) => !paidTokens.has(r.campaignToken));
+      } else {
+        const segTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
+        rows = rows.filter((r) => segTokens.has(r.campaignToken));
+      }
     }
     const map = new Map<string, {
       date: string; installs: number; clicks: number; cost: number; engagement: number;
@@ -927,7 +936,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return Array.from(map.values())
       .filter((d) => d.installs > 0 || d.cost > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [enrichedDailyRows, showGenericOnly, filteredPaidCampaigns]);
+  }, [enrichedDailyRows, enrichedPaidCampaigns, filteredPaidCampaigns, showGenericOnly, kpiSegment]);
 
   const toggleCamp = useCallback((key: string) => {
     setHiddenCamps((prev) => {
@@ -965,8 +974,8 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const avgCpi           = meanOf(dailyPoints, 'cpi');
   const avgCpiEngage     = meanOf(dailyPoints, 'cpiEngagement');
 
-  const effectiveTotals     = kpiSegmentTotals ?? displayTotals ?? totals;
-  const effectivePrevTotals = kpiSegment !== 'all' ? null : showGenericOnly ? (data?.genericPrevTotals ?? null) : prevTotals;
+  const effectiveTotals     = displayTotals ?? totals;
+  const effectivePrevTotals = (kpiSegment !== 'all') ? null : showGenericOnly ? (data?.genericPrevTotals ?? null) : prevTotals;
 
   const kpis = [
     { label: 'Coût total',       value: effectiveTotals.cost,          prev: effectivePrevTotals?.cost,          display: `$${Number(effectiveTotals.cost ?? 0).toFixed(0)}`, lowerIsBetter: true  },
@@ -1053,7 +1062,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           );
         })()}
         <button
-          onClick={() => setShowGenericOnly((v) => !v)}
+          onClick={() => { setShowGenericOnly((v) => !v); setKpiSegment('all'); }}
           className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
             showGenericOnly
               ? 'bg-cyan-500 text-white border-cyan-500 shadow-sm'
@@ -1063,17 +1072,17 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           <span>Generic only</span>
           {showGenericOnly && <span className="opacity-80">×</span>}
         </button>
-        {/* KPI segment filter — affects macro KPI cards only, not charts */}
+        {/* Segment filter — drives KPI cards, charts, table across the whole tab */}
         <div className="flex gap-0.5 bg-gray-100 rounded-lg p-0.5">
           {([
-            { value: 'all',       label: 'Tous' },
-            { value: 'generic',   label: 'Generic' },
-            { value: 'iconic',    label: 'Iconic' },
+            { value: 'all',        label: 'Tous' },
+            { value: 'generic',    label: 'Generic' },
+            { value: 'iconic',     label: 'Iconic' },
             { value: 'other_paid', label: 'Autres paid' },
-            { value: 'noncamp',   label: 'Non-camp.' },
+            { value: 'noncamp',    label: 'Non-camp.' },
           ] as const).map(({ value, label }) => (
-            <button key={value} onClick={() => setKpiSegment(value)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${kpiSegment === value ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+            <button key={value} onClick={() => { setKpiSegment(value); setShowGenericOnly(false); }}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${kpiSegment === value && !showGenericOnly ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
               {label}
             </button>
           ))}
@@ -1087,6 +1096,18 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           ))}
         </div>
       </div>
+
+      {/* Segment active banner */}
+      {(kpiSegment !== 'all' || showGenericOnly) && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700">
+          <span className="font-semibold">Filtre actif :</span>
+          <span className="bg-indigo-100 px-2 py-0.5 rounded-full font-mono">
+            {showGenericOnly ? 'Generic only' : kpiSegment === 'generic' ? 'Generic' : kpiSegment === 'iconic' ? 'Iconic' : kpiSegment === 'other_paid' ? 'Autres paid' : 'Non-campagnes'}
+          </span>
+          <span className="text-indigo-400">— toutes les métriques et graphiques sont filtrés sur ce segment</span>
+          <button onClick={() => { setKpiSegment('all'); setShowGenericOnly(false); }} className="ml-auto text-indigo-500 hover:text-indigo-700 font-semibold">× Retirer</button>
+        </div>
+      )}
 
       {/* 1. KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
