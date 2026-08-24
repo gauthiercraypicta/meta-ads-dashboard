@@ -167,7 +167,7 @@ const REFLINE_STYLE = { stroke: '#CBD5E1', strokeDasharray: '4 2', strokeWidth: 
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="flex items-end gap-3 pt-2 pb-0.5 border-t-2 border-gray-100">
+    <div className="adjust-section-header flex items-end gap-3 pt-2 pb-0.5 border-t-2 border-gray-100">
       <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-[0.12em]">{title}</h2>
       {subtitle && <span className="text-[11px] text-gray-300 mb-px">{subtitle}</span>}
     </div>
@@ -1030,8 +1030,63 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     { label: 'CPM',              value: effectiveTotals.cpm,           prev: effectivePrevTotals?.cpm,           display: fmtMoney(effectiveTotals.cpm),                      lowerIsBetter: true  },
   ];
 
+  const segmentLabel = showGenericOnly ? 'Generic only'
+    : kpiSegment === 'generic'    ? 'Generic'
+    : kpiSegment === 'iconic'     ? 'Iconic'
+    : kpiSegment === 'other_paid' ? 'Autres paid'
+    : kpiSegment === 'noncamp'    ? 'Non-campagnes'
+    : 'Tous segments';
+
+  const PRESET_LABELS: Record<string, string> = {
+    yesterday: 'Hier', last_3d: '3 derniers jours', last_7d: '7 derniers jours',
+    last_14d: '14 derniers jours', last_30d: '30 derniers jours',
+    last_90d: '90 derniers jours', since_dec_1: 'Depuis déc. 2025',
+  };
+
   return (
+    <>
+    {/* ── Print CSS ──────────────────────────────────────────────────────── */}
+    <style>{`
+      @media print {
+        /* Hide site header + tab bar from Dashboard.tsx */
+        header, .sticky.z-10 { display: none !important; }
+        /* Hide Adjust controls bar */
+        #adjust-controls-bar { display: none !important; }
+        /* Hide interactive widgets */
+        button, select { display: none !important; }
+        /* Show print-only header */
+        #adjust-print-header { display: block !important; }
+        /* Page breaks at section dividers */
+        .adjust-section-header { page-break-before: always; break-before: page; padding-top: 12px !important; }
+        .adjust-section-header:first-of-type { page-break-before: auto; break-before: auto; }
+        /* Keep charts and tables together */
+        .recharts-wrapper, table { page-break-inside: avoid; break-inside: avoid; }
+        /* Remove decorative shadows */
+        * { box-shadow: none !important; }
+        /* Keep colors but simplify backgrounds */
+        body { background: white !important; }
+        /* Expand charts to full page width */
+        .grid { display: block !important; }
+        .grid > * + * { margin-top: 16px; }
+        /* Sticky bar becomes static so it doesn't overlay */
+        .sticky { position: static !important; }
+      }
+    `}</style>
+
     <div className={`space-y-6 transition-opacity duration-150 ${loading ? 'opacity-60 pointer-events-none' : ''}`}>
+
+      {/* Print-only header — invisible on screen, shown when printing */}
+      <div id="adjust-print-header" style={{ display: 'none' }}>
+        <div style={{ borderBottom: '2px solid #e5e7eb', paddingBottom: 12, marginBottom: 16 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>Picta Ads — Adjust Dashboard</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4, display: 'flex', gap: 16 }}>
+            <span>Période : <strong>{PRESET_LABELS[datePreset] ?? datePreset}</strong></span>
+            <span>Granularité : <strong>{granularity === 'day' ? 'Jour' : 'Semaine'}</strong></span>
+            <span>Segment : <strong>{segmentLabel}</strong></span>
+            <span style={{ marginLeft: 'auto', color: '#9ca3af' }}>Exporté le {new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+          </div>
+        </div>
+      </div>
 
       {/* Subtle re-fetch indicator */}
       {loading && (
@@ -1079,7 +1134,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       )}
 
       {/* ── Sticky controls ──────────────────────────────────────────────── */}
-      <div className="sticky top-[121px] z-[9] -mx-6 px-6 py-2.5 bg-white border-b border-gray-100 shadow-sm flex items-center gap-3">
+      <div id="adjust-controls-bar" className="sticky top-[121px] z-[9] -mx-6 px-6 py-2.5 bg-white border-b border-gray-100 shadow-sm flex items-center gap-3">
         <span className="text-[10px] text-gray-400 bg-gray-50 border border-gray-200 rounded-full px-2.5 py-1 font-mono hidden sm:inline">
           Adjust · KPI Service v1
         </span>
@@ -1129,13 +1184,27 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
             </button>
           ))}
         </div>
-        <div className="ml-auto flex gap-0.5 bg-gray-100 rounded-lg p-1">
-          {(['day', 'week'] as Granularity[]).map((g) => (
-            <button key={g} onClick={() => setGranularity(g)}
-              className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${granularity === g ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-              {g === 'day' ? 'Jour' : 'Semaine'}
-            </button>
-          ))}
+        <div className="ml-auto flex items-center gap-2">
+          {/* PDF export */}
+          <button
+            onClick={() => window.print()}
+            title="Exporter en PDF (Ctrl+P)"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600 transition-all"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            PDF
+          </button>
+
+          <div className="flex gap-0.5 bg-gray-100 rounded-lg p-1">
+            {(['day', 'week'] as Granularity[]).map((g) => (
+              <button key={g} onClick={() => setGranularity(g)}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${granularity === g ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                {g === 'day' ? 'Jour' : 'Semaine'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -2270,5 +2339,6 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       })()}
 
     </div>
+    </>
   );
 }
