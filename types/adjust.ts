@@ -75,4 +75,5 @@ export interface AdjustResponse {
   prevTotals: AdjustTotals | null;
   apps: { token: string; name: string }[];
   currency: string;
+  genericPrevTotals: AdjustTotals | null;
 }

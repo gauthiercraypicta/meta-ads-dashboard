@@ -68,7 +68,8 @@ function generateMock(): AdjustResponse {
   const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent, productDetailOpen: a.productDetailOpen + r.productDetailOpen, cartAddUnique: a.cartAddUnique + r.cartAddUnique, checkoutUnique: a.checkoutUnique + r.checkoutUnique, orderPlaceUnique: a.orderPlaceUnique + r.orderPlaceUnique, productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, ...ZERO_EXTRA });
   const totals = { ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
   const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82), cartAdd: Math.round(totals.cartAdd * 0.80), checkout: Math.round(totals.checkout * 0.80), orderPlace: Math.round(totals.orderPlace * 0.80), timeSpent: totals.timeSpent * 0.95, productDetailOpen: Math.round(totals.productDetailOpen * 0.80), cartAddUnique: Math.round(totals.cartAddUnique * 0.80), checkoutUnique: Math.round(totals.checkoutUnique * 0.80), orderPlaceUnique: Math.round(totals.orderPlaceUnique * 0.80), productDetailOpenUnique: Math.round(totals.productDetailOpenUnique * 0.80) };
-  return { daily, campaigns: campSummary, totals, prevTotals, apps, currency: 'USD' };
+  const genericPrevTotals = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.5), cost: prevTotals.cost * 0.5, engagement: Math.round(prevTotals.engagement * 0.5), cpi: prevTotals.cpi * 1.05, cpiEngagement: prevTotals.cpiEngagement * 1.05 };
+  return { daily, campaigns: campSummary, totals, prevTotals, genericPrevTotals, apps, currency: 'USD' };
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -300,7 +301,7 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
   onSort: (k: SortKey) => void;
 }) {
   const cols: ColDef[] = [
-    { key: 'name',    label: 'Campagne', fmt: (c) => c.name },
+    { key: 'name',    label: 'Campagne', fmt: (c) => c.name.replace(/[_\s]+\d{6,}$/, '') },
     { key: 'appName', label: 'App',      fmt: (c) => c.appName },
     { key: 'cost',    label: 'Coût',     fmt: (c) => Number(c.cost ?? 0) > 0 ? `$${Math.round(Number(c.cost))}` : '—' },
     { key: 'installs',      label: 'Installs',    fmt: (c) => fmtNum(c.installs) },
@@ -361,8 +362,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const [metaDailyRaw,     setMetaDailyRaw]     = useState<Array<{ date: string; campaignId: string; campaignName: string; installs: number; engagement: number; spend: number }> | null>(null);
   const [metaLoading,      setMetaLoading]      = useState(false);
   const [metaError,        setMetaError]        = useState<string | null>(null);
-  const [showGenericOnly,  setShowGenericOnly]  = useState(false);
-  const [budgetChanges,    setBudgetChanges]    = useState<Array<{ date: string; campaignId: string; campaignName: string; oldBudget: number; newBudget: number }>>([]);
+  const [showGenericOnly,   setShowGenericOnly]   = useState(false);
+  const [budgetChanges,     setBudgetChanges]     = useState<Array<{ date: string; campaignId: string; campaignName: string; oldBudget: number; newBudget: number }>>([]);
+  const [funnelRateKey,     setFunnelRateKey]     = useState<string>('engRate');
+  const [funnelGroupFilter, setFunnelGroupFilter] = useState<string>('all');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -606,6 +609,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     { key: 'ptv',     label: 'Print to Video',  color: '#8b5cf6', test: (n: string) => n.includes('print') || n.includes('ptv') },
     { key: 'travel',  label: 'Travel Card',      color: '#ec4899', test: (n: string) => n.includes('travel') || n.includes('card') },
     { key: 'generic', label: 'Generic',          color: '#06b6d4', test: (n: string) => n.includes('generic') },
+    { key: 'iconic',  label: 'Iconic',           color: '#a855f7', test: (n: string) => n.includes('iconic') },
   ];
 
   const creativeGroups = useMemo(() => {
@@ -737,6 +741,65 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     };
   }, [enrichedPaidCampaigns]);
 
+  // ── Interactive funnel chart — per campaign conversion rates ─────────────
+  const FUNNEL_RATES = [
+    { key: 'ctr',            label: 'CTR',                    desc: 'Clics / Impressions' },
+    { key: 'installRate',    label: 'Install Rate',            desc: 'Installs / Clics' },
+    { key: 'engRate',        label: 'Taux Engagement',         desc: 'Engagement / Installs' },
+    { key: 'pdUniqueRate',   label: 'Product Detail',          desc: 'PD Unique / Installs' },
+    { key: 'cartRate',       label: 'Panier',                  desc: 'Panier / Engagement' },
+    { key: 'cartUniqueRate', label: 'Panier Unique',           desc: 'Panier Uniq / Engagement' },
+    { key: 'coRate',         label: 'Checkout',                desc: 'Checkout / Panier' },
+    { key: 'coUniqueRate',   label: 'Checkout Unique',         desc: 'Checkout Uniq / Panier Uniq' },
+    { key: 'ordRate',        label: 'Order',                   desc: 'Order / Checkout' },
+    { key: 'ordUniqueRate',  label: 'Order Unique',            desc: 'Order Uniq / Checkout Uniq' },
+  ];
+
+  const FUNNEL_FILTERS = [
+    { key: 'all',     label: 'Tous',          test: (_n: string) => true },
+    { key: 'generic', label: 'Generic',       test: (n: string) => n.includes('generic') },
+    { key: 'iconic',  label: 'Iconic',        test: (n: string) => n.includes('iconic') },
+    { key: 'dog',     label: 'Dog Poster',    test: (n: string) => n.includes('dog') },
+    { key: 'ptv',     label: 'Print to Video',test: (n: string) => n.includes('print') || n.includes('ptv') },
+    { key: 'travel',  label: 'Travel Card',   test: (n: string) => n.includes('travel') || n.includes('card') },
+  ];
+
+  const funnelChartData = useMemo(() => {
+    const filterDef = FUNNEL_FILTERS.find((f) => f.key === funnelGroupFilter) ?? FUNNEL_FILTERS[0];
+    return enrichedPaidCampaigns
+      .filter((c) => filterDef.test(c.name.toLowerCase()))
+      .map((c) => {
+        const pd = c.productDetailOpenUnique ?? 0;
+        const cu = c.cartAddUnique ?? 0;
+        const cou = c.checkoutUnique ?? 0;
+        const ou = c.orderPlaceUnique ?? 0;
+        const rates: Record<string, number> = {
+          ctr:            c.impressions  > 0 ? c.clicks / c.impressions : 0,
+          installRate:    c.clicks       > 0 ? c.installs / c.clicks : 0,
+          engRate:        c.installs     > 0 ? c.engagement / c.installs : 0,
+          pdUniqueRate:   c.installs     > 0 ? pd / c.installs : 0,
+          cartRate:       c.engagement   > 0 ? c.cartAdd / c.engagement : 0,
+          cartUniqueRate: c.engagement   > 0 ? cu / c.engagement : 0,
+          coRate:         c.cartAdd      > 0 ? c.checkout / c.cartAdd : 0,
+          coUniqueRate:   cu             > 0 ? cou / cu : 0,
+          ordRate:        c.checkout     > 0 ? c.orderPlace / c.checkout : 0,
+          ordUniqueRate:  cou            > 0 ? ou / cou : 0,
+        };
+        const shortName = c.name
+          .replace(/^(US_)?Picta_/i, '')
+          .replace(/_Meta_clickoncta/i, '')
+          .replace(/_allformats.*/i, '')
+          .replace(/[_\s]+\d{6,}$/, '')
+          .replace(/_/g, ' ')
+          .trim()
+          .slice(0, 28);
+        return { name: shortName, value: rates[funnelRateKey] ?? 0, token: c.token, cost: c.cost };
+      })
+      .filter((d) => d.value > 0)
+      .sort((a, b) => b.value - a.value);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enrichedPaidCampaigns, funnelGroupFilter, funnelRateKey]);
+
   // ── Budget change reference lines — grouped by date ─────────────────────
   const budgetRefLines = useMemo(() => {
     // Abbreviate campaign names for chart labels
@@ -809,7 +872,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   const avgCpiEngage     = meanOf(dailyPoints, 'cpiEngagement');
 
   const effectiveTotals     = displayTotals ?? totals;
-  const effectivePrevTotals = showGenericOnly ? null : prevTotals;
+  const effectivePrevTotals = showGenericOnly ? (data?.genericPrevTotals ?? null) : prevTotals;
 
   const kpis = [
     { label: 'Coût total',       value: effectiveTotals.cost,          prev: effectivePrevTotals?.cost,          display: `$${Number(effectiveTotals.cost ?? 0).toFixed(0)}`, lowerIsBetter: true  },
@@ -1708,6 +1771,133 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                 </div>
               )}
             </div>
+          </div>
+        );
+      })()}
+
+      {/* 11. Funnel interactif par créatif */}
+      {enrichedPaidCampaigns.length > 0 && (() => {
+        const activeFunnel = FUNNEL_RATES.find((r) => r.key === funnelRateKey) ?? FUNNEL_RATES[0];
+        const maxVal = Math.max(...funnelChartData.map((d) => d.value), 0.001);
+
+        return (
+          <div className="space-y-4 mt-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-sm font-bold text-gray-900">Funnel par produit</h2>
+              <span className="text-xs text-gray-400">Taux de conversion par campagne — sélectionne une étape du funnel</span>
+            </div>
+
+            {/* Creative filter */}
+            <div className="flex gap-2 flex-wrap items-center">
+              <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mr-1">Créatif :</span>
+              {FUNNEL_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setFunnelGroupFilter(f.key)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                    funnelGroupFilter === f.key
+                      ? 'bg-gray-800 text-white border-gray-800'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Funnel step selector */}
+            <div className="flex gap-2 flex-wrap items-center">
+              <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mr-1">Étape :</span>
+              {FUNNEL_RATES.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setFunnelRateKey(r.key)}
+                  title={r.desc}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                    funnelRateKey === r.key
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            {funnelChartData.length === 0 ? (
+              <p className="text-xs text-gray-400 py-4 text-center">Aucune donnée pour ce filtre — les events uniques remontent dès que le tracking plan est actif.</p>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500">
+                  <span className="font-semibold">{activeFunnel.label}</span>
+                  <span className="text-gray-400 ml-2">({activeFunnel.desc})</span>
+                </p>
+
+                {/* Bar chart */}
+                <div className="overflow-x-auto">
+                  <div style={{ minWidth: Math.max(funnelChartData.length * 90, 300) }}>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={funnelChartData} margin={{ top: 8, right: 16, bottom: 60, left: 40 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 9, fill: '#6b7280' }}
+                          angle={-35}
+                          textAnchor="end"
+                          interval={0}
+                        />
+                        <YAxis
+                          tickFormatter={(v) => `${(v * 100).toFixed(1)}%`}
+                          tick={{ fontSize: 9, fill: '#9ca3af' }}
+                          domain={[0, Math.min(maxVal * 1.25, 1)]}
+                        />
+                        <Tooltip
+                          formatter={(v: number) => [`${(v * 100).toFixed(2)}%`, activeFunnel.label]}
+                          labelStyle={{ fontSize: 11, fontWeight: 600 }}
+                          contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                        />
+                        <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={60}>
+                          {funnelChartData.map((entry, index) => (
+                            <Cell key={entry.token} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Ranking table */}
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="min-w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100">
+                        <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">#</th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Campagne</th>
+                        <th className="px-3 py-2 text-right font-semibold text-gray-500 uppercase tracking-wide">{activeFunnel.label}</th>
+                        <th className="px-3 py-2 text-right font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Dépenses</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {funnelChartData.map((row, i) => (
+                        <tr key={row.token} className={`border-b border-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/30'}`}>
+                          <td className="px-3 py-2 text-gray-400 font-mono">{i + 1}</td>
+                          <td className="px-3 py-2 text-gray-800 font-medium flex items-center gap-2">
+                            <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                            {row.name}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-bold" style={{ color: COLORS[i % COLORS.length] }}>
+                            {(row.value * 100).toFixed(2)}%
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-500 font-mono hidden sm:table-cell">
+                            {row.cost > 0 ? `$${Math.round(row.cost)}` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
