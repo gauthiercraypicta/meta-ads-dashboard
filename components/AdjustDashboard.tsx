@@ -301,18 +301,24 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
   onSort: (k: SortKey) => void;
 }) {
   const cols: ColDef[] = [
-    { key: 'name',    label: 'Campagne', fmt: (c) => c.name.replace(/[_\s]+\d{6,}$/, '') },
-    { key: 'appName', label: 'App',      fmt: (c) => c.appName },
-    { key: 'cost',    label: 'Coût',     fmt: (c) => Number(c.cost ?? 0) > 0 ? `$${Math.round(Number(c.cost))}` : '—' },
-    { key: 'installs',      label: 'Installs',    fmt: (c) => fmtNum(c.installs) },
-    { key: 'cpi',           label: 'CPI',         fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
-    { key: 'engagement',    label: 'Engagement',  fmt: (c) => fmtNum(c.engagement) },
-    {                       label: 'Transfo %',   fmt: (c) => c.installs > 0 ? `${(c.engagement / c.installs * 100).toFixed(1)}%` : '—' },
-    { key: 'cpiEngagement', label: 'CPI Engage.', fmt: (c) => c.cpiEngagement > 0 ? fmtMoney(c.cpiEngagement) : '—' },
-    { key: 'clicks',        label: 'Clics',       fmt: (c) => fmtNum(c.clicks) },
-    { key: 'impressions',   label: 'Impressions', fmt: (c) => fmtNum(c.impressions) },
-    { key: 'ctr',           label: 'CTR',         fmt: (c) => fmtPct(c.ctr) },
-    { key: 'cpm',           label: 'CPM',         fmt: (c) => fmtMoney(c.cpm) },
+    // ── Identity ──────────────────────────────────────────────────────────────
+    { key: 'name',       label: 'Campagne',         fmt: (c) => c.name.replace(/[_\s]+\d{6,}$/, '') },
+    { key: 'appName',    label: 'App',               fmt: (c) => c.appName },
+    // ── Top of funnel ─────────────────────────────────────────────────────────
+    { key: 'impressions', label: 'Impressions',      fmt: (c) => fmtNum(c.impressions) },
+    { key: 'clicks',      label: 'Clics',            fmt: (c) => fmtNum(c.clicks) },
+    { key: 'ctr',         label: 'CTR (Clic/Impr.)', fmt: (c) => c.impressions > 0 ? fmtPct(c.ctr) : '—' },
+    // ── Install ───────────────────────────────────────────────────────────────
+    { key: 'installs',    label: 'Installs',         fmt: (c) => fmtNum(c.installs) },
+    {                     label: 'DL/Clic',          fmt: (c) => c.clicks > 0 ? `${(c.installs / c.clicks * 100).toFixed(1)}%` : '—' },
+    // ── Engagement ────────────────────────────────────────────────────────────
+    { key: 'engagement',  label: 'Qualifiés',        fmt: (c) => fmtNum(c.engagement) },
+    {                     label: 'Qual./DL',         fmt: (c) => c.installs > 0 ? `${(c.engagement / c.installs * 100).toFixed(1)}%` : '—' },
+    // ── Cost ──────────────────────────────────────────────────────────────────
+    { key: 'cost',        label: 'Coût',             fmt: (c) => Number(c.cost ?? 0) > 0 ? `$${Math.round(Number(c.cost))}` : '—' },
+    { key: 'cpi',         label: 'CPI ($/Install)',  fmt: (c) => c.cpi > 0 ? fmtMoney(c.cpi) : '—' },
+    { key: 'cpiEngagement', label: 'CPI Qual. ($/Qual.)', fmt: (c) => c.cpiEngagement > 0 ? fmtMoney(c.cpiEngagement) : '—' },
+    { key: 'cpm',         label: 'CPM',              fmt: (c) => c.impressions > 0 ? fmtMoney(c.cpm) : '—' },
   ];
   if (!campaigns.length) return <p className="text-sm text-gray-400 py-6 text-center">Aucune campagne.</p>;
   return (
