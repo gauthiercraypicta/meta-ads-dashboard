@@ -1852,7 +1852,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                           domain={[0, Math.min(maxVal * 1.25, 1)]}
                         />
                         <Tooltip
-                          formatter={(v: number) => [`${(v * 100).toFixed(2)}%`, activeFunnel.label]}
+                          formatter={(v: number | undefined) => [`${((v ?? 0) * 100).toFixed(2)}%`, activeFunnel.label]}
                           labelStyle={{ fontSize: 11, fontWeight: 600 }}
                           contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
                         />
