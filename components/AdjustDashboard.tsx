@@ -835,6 +835,37 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     })).filter((r) => r.displayDate !== null);
   }, [budgetChanges, dailyPoints]);
 
+  // ── Daily aggregation for the weekly performance table ───────────────────
+  const dailyAggByDate = useMemo(() => {
+    let rows = enrichedDailyRows;
+    if (showGenericOnly) {
+      const genericTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
+      rows = rows.filter((r) => genericTokens.has(r.campaignToken));
+    }
+    const map = new Map<string, {
+      date: string; installs: number; cost: number; engagement: number;
+      cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number;
+    }>();
+    for (const r of rows) {
+      const e = map.get(r.date);
+      if (!e) {
+        map.set(r.date, {
+          date: r.date,
+          installs: r.installs, cost: r.cost, engagement: r.engagement,
+          cartAddUnique: r.cartAddUnique ?? 0, checkoutUnique: r.checkoutUnique ?? 0,
+          orderPlaceUnique: r.orderPlaceUnique ?? 0,
+        });
+      } else {
+        e.installs += r.installs; e.cost += r.cost; e.engagement += r.engagement;
+        e.cartAddUnique += r.cartAddUnique ?? 0; e.checkoutUnique += r.checkoutUnique ?? 0;
+        e.orderPlaceUnique += r.orderPlaceUnique ?? 0;
+      }
+    }
+    return Array.from(map.values())
+      .filter((d) => d.installs > 0 || d.cost > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [enrichedDailyRows, showGenericOnly, filteredPaidCampaigns]);
+
   const toggleCamp = useCallback((key: string) => {
     setHiddenCamps((prev) => {
       const next = new Set(prev);
@@ -1893,6 +1924,153 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── §12 Performance journalière ───────────────────────────────────────── */}
+      {dailyAggByDate.length > 0 && (() => {
+        const DOW = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+        const getDow = (dateStr: string) => DOW[new Date(dateStr + 'T12:00:00').getDay()];
+
+        const totalCost       = dailyAggByDate.reduce((s, d) => s + d.cost, 0);
+        const totalInstalls   = dailyAggByDate.reduce((s, d) => s + d.installs, 0);
+        const totalEngagement = dailyAggByDate.reduce((s, d) => s + d.engagement, 0);
+
+        const funnelRows = dailyAggByDate.filter((d) => d.cartAddUnique > 0);
+        const fTotalCost   = funnelRows.reduce((s, d) => s + d.cost, 0);
+        const fTotalInst   = funnelRows.reduce((s, d) => s + d.installs, 0);
+        const fTotalEng    = funnelRows.reduce((s, d) => s + d.engagement, 0);
+        const fTotalCart   = funnelRows.reduce((s, d) => s + d.cartAddUnique, 0);
+        const fTotalCo     = funnelRows.reduce((s, d) => s + d.checkoutUnique, 0);
+        const fTotalOrder  = funnelRows.reduce((s, d) => s + d.orderPlaceUnique, 0);
+
+        const campsBySpend = [...filteredPaidCampaigns].sort((a, b) => b.cost - a.cost);
+
+        const thHead = 'px-3 py-2 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap';
+        const tdBase = 'px-3 py-2 font-mono whitespace-nowrap';
+
+        return (
+          <div className="space-y-6">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest pt-2 border-t border-gray-100">
+              §12 — Performance journalière
+            </h3>
+
+            {/* Table 1: Spend / Downloads / Qualifiés — tous les jours */}
+            <div>
+              <p className="text-[10px] text-gray-400 mb-2">Spend Meta · Downloads · Qualifiés — toute la période</p>
+              <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className={`${thHead} text-left text-gray-400`}>Date</th>
+                      <th className={`${thHead} text-left text-gray-400`}>Jour</th>
+                      <th className={`${thHead} text-right text-amber-600`}>Spend</th>
+                      <th className={`${thHead} text-right text-blue-500`}>Downloads</th>
+                      <th className={`${thHead} text-right text-purple-500`}>Qualifiés</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dailyAggByDate.map((d, i) => (
+                      <tr key={d.date} className={`border-b border-gray-50 ${i % 2 ? 'bg-gray-50/40' : ''}`}>
+                        <td className={`${tdBase} text-[10px] text-gray-400 text-left`}>{fmtDate(d.date)}</td>
+                        <td className="px-3 py-2 text-gray-600 font-medium text-left">{getDow(d.date)}</td>
+                        <td className={`${tdBase} text-right text-amber-600 font-semibold`}>{d.cost > 0 ? `$${Math.round(d.cost)}` : '—'}</td>
+                        <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(d.installs)}</td>
+                        <td className={`${tdBase} text-right text-purple-500 font-semibold`}>{fmtNum(d.engagement)}</td>
+                      </tr>
+                    ))}
+
+                    {/* Macro total */}
+                    <tr className="bg-gray-50 border-t border-gray-200 font-bold">
+                      <td className="px-3 py-2 text-gray-700 text-left">Total</td>
+                      <td className="px-3 py-2 text-gray-400 text-[10px] text-left">Macro</td>
+                      <td className={`${tdBase} text-right text-amber-600`}>${Math.round(totalCost)}</td>
+                      <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(totalInstalls)}</td>
+                      <td className={`${tdBase} text-right text-purple-500`}>{fmtNum(totalEngagement)}</td>
+                    </tr>
+
+                    {/* Per-campaign rows */}
+                    {campsBySpend.length > 0 && (
+                      <>
+                        <tr className="bg-gray-50/50 border-t border-gray-100">
+                          <td colSpan={5} className="px-3 py-1.5 text-[9px] font-bold text-gray-400 uppercase tracking-wider">
+                            Détail par campagne
+                          </td>
+                        </tr>
+                        {campsBySpend.map((c) => (
+                          <tr key={c.token} className="border-t border-gray-50 hover:bg-gray-50/60">
+                            <td className="px-3 py-1.5 text-gray-300 text-left pl-6">↳</td>
+                            <td className="px-3 py-1.5 text-gray-500 text-[10px] font-medium text-left max-w-[200px] truncate" title={c.name}>
+                              {c.name.replace(/[_\s]+\d{6,}$/, '')}
+                            </td>
+                            <td className={`${tdBase} text-right text-[10px] text-amber-500`}>{c.cost > 0 ? `$${Math.round(c.cost)}` : '—'}</td>
+                            <td className={`${tdBase} text-right text-[10px] text-blue-400`}>{fmtNum(c.installs)}</td>
+                            <td className={`${tdBase} text-right text-[10px] text-purple-400`}>{fmtNum(c.engagement)}</td>
+                          </tr>
+                        ))}
+                      </>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Table 2: Funnel unique — uniquement les jours avec données */}
+            {funnelRows.length > 0 && (
+              <div>
+                <p className="text-[10px] text-gray-400 mb-1">Funnel unique · à partir du {fmtDate(funnelRows[0].date)}</p>
+                <p className="text-[10px] text-amber-500 mb-2">⚡ Tracking événements uniques actif à partir de ce jour</p>
+                <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
+                  <table className="min-w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-100">
+                        <th className={`${thHead} text-left text-gray-400`}>Date</th>
+                        <th className={`${thHead} text-left text-gray-400`}>Jour</th>
+                        <th className={`${thHead} text-right text-amber-600`}>Spend</th>
+                        <th className={`${thHead} text-right text-blue-500`}>Downloads</th>
+                        <th className={`${thHead} text-right text-purple-500`}>Qualifiés</th>
+                        <th className={`${thHead} text-right text-teal-500`}>Panier+</th>
+                        <th className={`${thHead} text-right text-red-400`}>Abandon</th>
+                        <th className={`${thHead} text-right text-teal-600`}>Checkout</th>
+                        <th className={`${thHead} text-right text-green-500`}>Commandes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {funnelRows.map((d, i) => {
+                        const abandon = d.cartAddUnique - d.orderPlaceUnique;
+                        return (
+                          <tr key={d.date} className={`border-b border-gray-50 ${i % 2 ? 'bg-gray-50/40' : ''}`}>
+                            <td className={`${tdBase} text-[10px] text-gray-400 text-left`}>{fmtDate(d.date)}</td>
+                            <td className="px-3 py-2 text-gray-600 font-medium text-left">{getDow(d.date)}</td>
+                            <td className={`${tdBase} text-right text-amber-600 font-semibold`}>{d.cost > 0 ? `$${Math.round(d.cost)}` : '—'}</td>
+                            <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(d.installs)}</td>
+                            <td className={`${tdBase} text-right text-purple-500 font-semibold`}>{fmtNum(d.engagement)}</td>
+                            <td className={`${tdBase} text-right text-teal-500 font-semibold`}>{d.cartAddUnique || '—'}</td>
+                            <td className={`${tdBase} text-right text-red-400 font-semibold`}>{abandon > 0 ? abandon : '—'}</td>
+                            <td className={`${tdBase} text-right text-teal-600`}>{d.checkoutUnique || '—'}</td>
+                            <td className={`${tdBase} text-right text-green-500 font-bold`}>{d.orderPlaceUnique || '—'}</td>
+                          </tr>
+                        );
+                      })}
+
+                      {/* Funnel total */}
+                      <tr className="bg-gray-50 border-t border-gray-200 font-bold">
+                        <td className="px-3 py-2 text-gray-700 text-left">Total</td>
+                        <td className="px-3 py-2 text-gray-400 text-[10px] text-left">{funnelRows.length}j</td>
+                        <td className={`${tdBase} text-right text-amber-600`}>${Math.round(fTotalCost)}</td>
+                        <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(fTotalInst)}</td>
+                        <td className={`${tdBase} text-right text-purple-500`}>{fmtNum(fTotalEng)}</td>
+                        <td className={`${tdBase} text-right text-teal-500`}>{fTotalCart}</td>
+                        <td className={`${tdBase} text-right text-red-400`}>{fTotalCart - fTotalOrder}</td>
+                        <td className={`${tdBase} text-right text-teal-600`}>{fTotalCo}</td>
+                        <td className={`${tdBase} text-right text-green-500`}>{fTotalOrder}</td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
