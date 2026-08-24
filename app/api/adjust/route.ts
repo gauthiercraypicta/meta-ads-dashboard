@@ -263,9 +263,15 @@ export async function GET(req: Request) {
         ? deriveTotals(prevSum)
         : null;
 
+      const genericPrevDail = prevDail.filter((r) => r.campaignName.toLowerCase().includes('generic'));
+      const genericPrevSum  = sumRows(genericPrevDail);
+      const genericPrevTotals = genericPrevSum.installs > 0 || genericPrevSum.cost > 0
+        ? deriveTotals(genericPrevSum)
+        : null;
+
       const apps = [...new Map(daily.map((r) => [r.appToken, { token: r.appToken, name: r.appName }])).values()];
 
-      return { daily, campaigns, totals, prevTotals, apps, currency: 'USD' };
+      return { daily, campaigns, totals, prevTotals, genericPrevTotals, apps, currency: 'USD' };
     });
 
     return NextResponse.json(result);
