@@ -165,6 +165,15 @@ const REFLINE_STYLE = { stroke: '#CBD5E1', strokeDasharray: '4 2', strokeWidth: 
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="flex items-end gap-3 pt-2 pb-0.5 border-t-2 border-gray-100">
+      <h2 className="text-[11px] font-bold text-gray-400 uppercase tracking-[0.12em]">{title}</h2>
+      {subtitle && <span className="text-[11px] text-gray-300 mb-px">{subtitle}</span>}
+    </div>
+  );
+}
+
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -1142,12 +1151,18 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         </div>
       )}
 
+      {/* ── Section: Vue d'ensemble ─────────────────────────────────── */}
+      <SectionHeader title="Vue d'ensemble" subtitle="KPIs macro sur la période sélectionnée" />
+
       {/* 1. KPI cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
         {kpis.map((k) => (
           <KpiCard key={k.label} label={k.label} value={k.value} prevValue={k.prev ?? null} display={k.display} lowerIsBetter={k.lowerIsBetter} />
         ))}
       </div>
+
+      {/* ── Section: Tendances ──────────────────────────────────────── */}
+      <SectionHeader title="Tendances temporelles" subtitle="Évolution jour par jour ou semaine par semaine" />
 
       {/* 2. Installs+Engagement stacked histogram & Taux de transformation */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -1257,6 +1272,9 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           </ResponsiveContainer>
         </ChartCard>
       </div>
+
+      {/* ── Section: Par campagne ───────────────────────────────────── */}
+      <SectionHeader title="Par campagne" subtitle="CPI, tableau détaillé et réconciliation Meta / Adjust" />
 
       {/* 5. CPI par campagne + CPI Engagement par campagne */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -1461,6 +1479,9 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         </ChartCard>
       )}
 
+      {/* ── Section: Créatifs ───────────────────────────────────────── */}
+      <SectionHeader title="Analyse créatifs" subtitle="Dog Poster · Print to Video · Travel Card · Generic · Iconic" />
+
       {/* 8. Comparaison Dog Poster / Print to Video / Generic */}
       {creativeGroups.some((g) => g.count > 0) && (() => {
         // Best = lowest CPI / CPI Engagement, highest CTR
@@ -1597,6 +1618,9 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           </div>
         );
       })()}
+
+      {/* ── Section: Funnels ────────────────────────────────────────── */}
+      <SectionHeader title="Funnels" subtitle="Visualisation du parcours utilisateur de l'impression à la commande" />
 
       {/* 9. Funnel — visual funnel respecting kpiSegment */}
       {genericFunnel.length > 0 && (() => {
@@ -2081,9 +2105,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
         return (
           <div className="space-y-6">
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest pt-2 border-t border-gray-100">
-              §12 — Performance journalière
-            </h3>
+            <SectionHeader title="Performance journalière" subtitle="Spend · Clics · Downloads · Qualifiés · Funnel unique" />
 
             {/* Table 1: Spend / Clics / Downloads / Qualifiés — tous les jours */}
             <div>
