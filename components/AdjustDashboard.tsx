@@ -2047,7 +2047,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                     </thead>
                     <tbody>
                       {funnelRows.map((d, i) => {
-                        const abandon      = d.cartAddUnique - d.orderPlaceUnique;
+                        const abandon      = d.cartAddUnique - d.checkoutUnique;
                         const cartRate     = d.engagement    > 0 ? d.cartAddUnique   / d.engagement    : null;
                         const abandonRate  = d.cartAddUnique > 0 ? abandon            / d.cartAddUnique : null;
                         const coRate       = d.cartAddUnique > 0 ? d.checkoutUnique   / d.cartAddUnique : null;
@@ -2083,7 +2083,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                       {/* Funnel total */}
                       {(() => {
                         const tCartRate  = fTotalEng   > 0 ? fTotalCart              / fTotalEng   : null;
-                        const tAbandRate = fTotalCart  > 0 ? (fTotalCart - fTotalOrder) / fTotalCart : null;
+                        const tAbandRate = fTotalCart  > 0 ? (fTotalCart - fTotalCo)    / fTotalCart : null;
                         const tCoRate    = fTotalCart  > 0 ? fTotalCo                / fTotalCart  : null;
                         const tOrdRate   = fTotalCo    > 0 ? fTotalOrder             / fTotalCo    : null;
                         const pct = (r: number | null) => r !== null ? `${(r * 100).toFixed(1)}%` : null;
@@ -2099,7 +2099,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                               {pct(tCartRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tCartRate)} des qual.</div>}
                             </td>
                             <td className={`${tdBase} text-right text-red-400`}>
-                              <div>{fTotalCart - fTotalOrder}</div>
+                              <div>{fTotalCart - fTotalCo}</div>
                               {pct(tAbandRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tAbandRate)} du panier</div>}
                             </td>
                             <td className={`${tdBase} text-right text-teal-600`}>
