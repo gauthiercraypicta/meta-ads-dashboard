@@ -1715,8 +1715,6 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           ...(tot.checkout > 0   ? [{ label: 'Checkout',  key: 'checkout'  as StepKey, convLabel: 'Panier → Checkout', prev: 'cartAdd'    as StepKey }] : []),
           ...(tot.orderPlace > 0 ? [{ label: 'Commandes', key: 'orderPlace' as StepKey, convLabel: 'Checkout → Cmd.',  prev: 'checkout'   as StepKey }] : []),
         ];
-        const maxVal = tot.impressions || 1;
-
         const segmentLabel = showGenericOnly ? 'Generic' :
           kpiSegment === 'generic'    ? 'Generic' :
           kpiSegment === 'iconic'     ? 'Iconic' :
@@ -1744,87 +1742,96 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
               </div>
             </div>
 
-            {/* Visual funnel */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 space-y-0">
-              {allSteps.map((step) => {
-                const total = tot[step.key];
-                const prevTotal = step.prev ? tot[step.prev] : null;
-                const convRate = prevTotal && prevTotal > 0 ? (total / prevTotal) * 100 : null;
-                const barWidthPct = Math.max((total / maxVal) * 100, total > 0 ? 1 : 0);
+            {/* 3 independent platform funnels */}
+            <div className="grid grid-cols-3 gap-3">
+              {(['iOS', 'Android', 'Web'] as const).map((platform) => {
+                const g = genericFunnel.find((f) => f.platform === platform) ?? null;
+
+                // Empty state — platform has no data in current filter
+                if (!g || (g.installs === 0 && g.cost === 0)) {
+                  const PLT_COLORS: Record<string, string> = { iOS: '#3b82f6', Android: '#10b981', Web: '#f97316' };
+                  return (
+                    <div key={platform} className="bg-gray-50 rounded-xl border border-dashed border-gray-200 p-5 flex flex-col items-center justify-center min-h-[280px] gap-2">
+                      <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: PLT_COLORS[platform], opacity: 0.25 }} />
+                      <span className="text-xs font-bold text-gray-300">{platform}</span>
+                      <span className="text-[10px] text-gray-300">Aucune dépense</span>
+                    </div>
+                  );
+                }
+
+                const platformMax = g.impressions || 1;
 
                 return (
-                  <div key={step.key}>
-                    {/* Conversion arrow between steps */}
-                    {step.convLabel && (
-                      <div className="flex items-center gap-3 py-1 pl-[8.5rem]">
-                        <div className="w-px h-4 bg-gray-200 shrink-0" />
-                        {convRate !== null ? (
-                          <span className="text-[11px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full whitespace-nowrap">
-                            ↓ {step.convLabel} : {convRate.toFixed(1)}%
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-gray-300">↓ {step.convLabel}</span>
-                        )}
-                      </div>
-                    )}
-                    {/* Step row */}
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold text-gray-500 w-32 text-right shrink-0">{step.label}</span>
-                      {/* Stacked bar by platform */}
-                      <div className="flex-1 h-8 bg-gray-50 rounded-lg overflow-hidden relative">
-                        <div
-                          className="h-full flex rounded-lg overflow-hidden transition-all duration-500"
-                          style={{ width: `${barWidthPct}%` }}
-                        >
-                          {genericFunnel.map((g) => {
-                            const share = total > 0 ? g[step.key] / total : 0;
-                            return (
-                              <div
-                                key={g.platform}
-                                title={`${g.platform}: ${fmtNum(g[step.key])}`}
-                                style={{ width: `${share * 100}%`, backgroundColor: g.color }}
-                              />
-                            );
-                          })}
+                  <div key={platform} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col">
+                    {/* Platform header */}
+                    <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: g.color }} />
+                      <span className="text-sm font-bold text-gray-800">{platform}</span>
+                      <span className="text-[10px] text-gray-400 ml-auto">{g.campaigns.length} camp.</span>
+                    </div>
+
+                    {/* Funnel steps */}
+                    <div className="flex-1">
+                      {allSteps.map((step) => {
+                        const val  = g[step.key];
+                        const prev = step.prev ? g[step.prev] : null;
+                        const conv = prev && prev > 0 ? (val / prev) * 100 : null;
+                        const pct  = platformMax > 0 ? Math.max((val / platformMax) * 100, val > 0 ? 2 : 0) : 0;
+                        return (
+                          <div key={step.key}>
+                            {step.convLabel && (
+                              <div className="flex items-center gap-1.5 py-1 pl-12">
+                                <div className="w-px h-3 bg-gray-200 shrink-0" />
+                                {conv !== null ? (
+                                  <span className="text-[10px] font-semibold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                    ↓ {conv.toFixed(1)}%
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-gray-300">↓ —</span>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-semibold text-gray-400 w-16 text-right shrink-0 leading-tight">{step.label}</span>
+                              <div className="flex-1 h-5 bg-gray-50 rounded overflow-hidden">
+                                <div
+                                  className="h-full rounded transition-all duration-500"
+                                  style={{ width: `${pct}%`, backgroundColor: g.color, opacity: 0.85 }}
+                                />
+                              </div>
+                              <span className="text-[10px] font-mono font-bold text-gray-700 w-9 shrink-0 tabular-nums text-right">
+                                {val > 0 ? fmtNum(val) : '—'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Per-platform KPI footer */}
+                    <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5">
+                      {g.cost > 0 && (
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">Dépenses</span>
+                          <span className="font-bold text-gray-700">${Math.round(g.cost)}</span>
                         </div>
-                      </div>
-                      <span className="text-xs font-mono font-bold text-gray-700 w-14 shrink-0 tabular-nums">
-                        {total > 0 ? fmtNum(total) : '—'}
-                      </span>
+                      )}
+                      {g.cpi > 0 && (
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">CPI</span>
+                          <span className="font-bold text-gray-700">{fmtMoney(g.cpi)}</span>
+                        </div>
+                      )}
+                      {g.cpiEngagement > 0 && (
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-gray-400 uppercase tracking-wide">CPI Engagés</span>
+                          <span className="font-bold text-gray-700">{fmtMoney(g.cpiEngagement)}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
-
-              {/* KPI footer */}
-              <div className="flex flex-wrap gap-6 pt-5 mt-4 border-t border-gray-100">
-                <div>
-                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Dépenses</p>
-                  <p className="text-sm font-bold text-gray-800">{tot.cost > 0 ? `$${Math.round(tot.cost)}` : '—'}</p>
-                </div>
-                {tot.installs > 0 && tot.cost > 0 && (
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">CPI moyen</p>
-                    <p className="text-sm font-bold text-gray-800">{fmtMoney(tot.cost / tot.installs)}</p>
-                  </div>
-                )}
-                {tot.engagement > 0 && tot.cost > 0 && (
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">CPI Engagés</p>
-                    <p className="text-sm font-bold text-gray-800">{fmtMoney(tot.cost / tot.engagement)}</p>
-                  </div>
-                )}
-                {/* Per-platform CPI */}
-                {genericFunnel.filter((g) => g.cpi > 0).map((g) => (
-                  <div key={g.platform}>
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: g.color }} />
-                      CPI {g.platform}
-                    </p>
-                    <p className="text-sm font-bold text-gray-700">{fmtMoney(g.cpi)}</p>
-                  </div>
-                ))}
-              </div>
             </div>
 
             {/* Mini bar charts */}
