@@ -493,9 +493,16 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       if (c.cost > 0) return c;
       const norm = normCampName(c.name);
 
-      // Check direct token match first (always unique, safe to use)
+      // Dedup check before any enrichment path — norm covers both byId and byNorm siblings
+      if (usedNorms.has(norm)) {
+        console.log(`[enrich] DEDUP — "${c.name}" norm:"${norm}" already enriched, skipping`);
+        return c;
+      }
+
+      // Check direct token match first
       const byIdCost = metaEnrichment.byId.get(c.token) ?? 0;
       if (byIdCost > 0) {
+        usedNorms.add(norm);
         console.log(`[enrich] HIT(id) — "${c.name}" → $${byIdCost.toFixed(2)}`);
         return {
           ...c, cost: byIdCost,
@@ -503,12 +510,6 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           cpm:           c.impressions > 0 ? (byIdCost / c.impressions) * 1000 : 0,
           cpiEngagement: c.engagement  > 0 ? byIdCost / c.engagement  : 0,
         };
-      }
-
-      // Norm-based match — deduplicate: skip if this norm was already enriched
-      if (usedNorms.has(norm)) {
-        console.log(`[enrich] DEDUP — "${c.name}" norm:"${norm}" already enriched, skipping`);
-        return c;
       }
 
       let metaCost = metaEnrichment.byNorm.get(norm) ?? 0;
@@ -1706,14 +1707,14 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         };
 
         type StepKey = 'impressions' | 'clicks' | 'installs' | 'engagement' | 'cartAdd' | 'checkout' | 'orderPlace';
+        // Impressions excluded — bars are proportional to clicks (first step = 100%)
         const allSteps: { label: string; key: StepKey; convLabel: string | null; prev: StepKey | null }[] = [
-          { label: 'Impressions', key: 'impressions', convLabel: null, prev: null },
-          { label: 'Clics',       key: 'clicks',      convLabel: 'CTR',         prev: 'impressions' },
-          { label: 'Installs',    key: 'installs',     convLabel: 'Clic → DL',   prev: 'clicks' },
-          { label: 'Qualifiés',   key: 'engagement',   convLabel: 'DL → Qual.',  prev: 'installs' },
-          ...(tot.cartAdd > 0    ? [{ label: 'Panier',    key: 'cartAdd'   as StepKey, convLabel: 'Qual. → Panier',    prev: 'engagement' as StepKey }] : []),
-          ...(tot.checkout > 0   ? [{ label: 'Checkout',  key: 'checkout'  as StepKey, convLabel: 'Panier → Checkout', prev: 'cartAdd'    as StepKey }] : []),
-          ...(tot.orderPlace > 0 ? [{ label: 'Commandes', key: 'orderPlace' as StepKey, convLabel: 'Checkout → Cmd.',  prev: 'checkout'   as StepKey }] : []),
+          { label: 'Clics',     key: 'clicks',     convLabel: null,              prev: null },
+          { label: 'Installs',  key: 'installs',   convLabel: 'Clic → DL',      prev: 'clicks' },
+          { label: 'Qualifiés', key: 'engagement', convLabel: 'DL → Qual.',      prev: 'installs' },
+          ...(tot.cartAdd > 0    ? [{ label: 'Panier',    key: 'cartAdd'    as StepKey, convLabel: 'Qual. → Panier',    prev: 'engagement' as StepKey }] : []),
+          ...(tot.checkout > 0   ? [{ label: 'Checkout',  key: 'checkout'   as StepKey, convLabel: 'Panier → Checkout', prev: 'cartAdd'    as StepKey }] : []),
+          ...(tot.orderPlace > 0 ? [{ label: 'Commandes', key: 'orderPlace'  as StepKey, convLabel: 'Checkout → Cmd.',  prev: 'checkout'   as StepKey }] : []),
         ];
         const segmentLabel = showGenericOnly ? 'Generic' :
           kpiSegment === 'generic'    ? 'Generic' :
@@ -1759,7 +1760,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                   );
                 }
 
-                const platformMax = g.impressions || 1;
+                const platformMax = g.clicks || 1;
 
                 return (
                   <div key={platform} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col">
@@ -1767,6 +1768,11 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                     <div className="flex items-center gap-2 mb-4 pb-3 border-b border-gray-100">
                       <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: g.color }} />
                       <span className="text-sm font-bold text-gray-800">{platform}</span>
+                      {g.impressions > 0 && (
+                        <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded-full">
+                          CTR {(g.ctr * 100).toFixed(1)}%
+                        </span>
+                      )}
                       <span className="text-[10px] text-gray-400 ml-auto">{g.campaigns.length} camp.</span>
                     </div>
 
