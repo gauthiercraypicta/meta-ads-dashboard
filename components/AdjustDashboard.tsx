@@ -493,9 +493,16 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       if (c.cost > 0) return c;
       const norm = normCampName(c.name);
 
-      // Check direct token match first (always unique, safe to use)
+      // Dedup check before any enrichment path — norm covers both byId and byNorm siblings
+      if (usedNorms.has(norm)) {
+        console.log(`[enrich] DEDUP — "${c.name}" norm:"${norm}" already enriched, skipping`);
+        return c;
+      }
+
+      // Check direct token match first
       const byIdCost = metaEnrichment.byId.get(c.token) ?? 0;
       if (byIdCost > 0) {
+        usedNorms.add(norm);
         console.log(`[enrich] HIT(id) — "${c.name}" → $${byIdCost.toFixed(2)}`);
         return {
           ...c, cost: byIdCost,
@@ -503,12 +510,6 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           cpm:           c.impressions > 0 ? (byIdCost / c.impressions) * 1000 : 0,
           cpiEngagement: c.engagement  > 0 ? byIdCost / c.engagement  : 0,
         };
-      }
-
-      // Norm-based match — deduplicate: skip if this norm was already enriched
-      if (usedNorms.has(norm)) {
-        console.log(`[enrich] DEDUP — "${c.name}" norm:"${norm}" already enriched, skipping`);
-        return c;
       }
 
       let metaCost = metaEnrichment.byNorm.get(norm) ?? 0;
