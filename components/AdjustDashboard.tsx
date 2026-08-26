@@ -11,8 +11,6 @@ import type { AdjustResponse, AdjustDailyRow, AdjustCampaignSummary } from '@/ty
 
 const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f97316', '#8b5cf6', '#06b6d4', '#84cc16', '#f43f5e'];
 
-const EXCLUDED_CAMPAIGN_IDS = new Set(['52683015717217']);
-
 function isGenericCampaign(name: string): boolean {
   return name.toLowerCase().includes('generic');
 }
@@ -451,9 +449,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   // ── 1. Base paid campaigns (Adjust data only) ─────────────────────────────
   const paidCampaigns = useMemo(() =>
-    data ? data.campaigns.filter(
-      (c) => (c.cost > 0 || c.installs > 0) && !EXCLUDED_CAMPAIGN_IDS.has(c.token)
-    ) : []
+    data ? data.campaigns.filter((c) => c.cost > 0 || c.installs > 0) : []
   , [data]);
 
   // ── 2. Meta enrichment maps — built from metaDailyRaw ─────────────────────
