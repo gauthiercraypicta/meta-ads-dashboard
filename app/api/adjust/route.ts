@@ -18,13 +18,16 @@ const CHECKOUT_UNIQUE_METRIC   = 'order_checkout_unique_events';
 const ORDER_UNIQUE_METRIC      = 'order_placed_unique_events';
 const PRODUCT_UNIQUE_METRIC    = 'product_detail_open_unique_events';
 
-// DIMENSIONS_MAIN: no campaign_id_network → Adjust aggregates all installs per
-// (day, app, campaign) without splitting by network ID. Avoids privacy suppression
-// on small (campaign, network_id) cells that hides installs from the total.
-// DIMENSIONS_IDS: includes campaign_id_network only to build the name→ID mapping
-// for Meta spend enrichment. app_token stays in both so filterRow still works.
-const DIMENSIONS_MAIN = ['day', 'app', 'app_token', 'campaign'];
-const DIMENSIONS_IDS  = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
+// Full dimensions for campaign breakdown — campaign_id_network is needed so
+// mapRow can set campaignToken to the network ID (used for Meta spend matching).
+// app_token must stay in dimensions for filterRow to isolate the right app.
+const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
+
+// Simplified dimensions for the totals-only call. Removing campaign and
+// campaign_id_network means Adjust won't split by (campaign, network_id) cells,
+// so small-cell privacy suppression can't hide installs from the grand total.
+// app_token stays so filterRow still works.
+const DIMENSIONS_SIMPLE = ['day', 'app_token'];
 const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
@@ -87,7 +90,7 @@ interface ReportResponse {
 async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
-  dims: string[] = DIMENSIONS_MAIN,
+  dims: string[] = DIMENSIONS,
 ): Promise<ReportResponse> {
   const parts: string[] = [];
   for (const t of appTokens) parts.push(`app_token[]=${encodeURIComponent(t)}`);
@@ -213,14 +216,14 @@ export async function GET(req: Request) {
       const prevRange = getPrevRange(range);
 
       // Three concurrent calls:
-      // • currMain — no campaign_id_network: accurate install counts (no cell suppression)
-      // • currIds  — with campaign_id_network: only used to build name→networkId mapping
-      //              for Meta spend enrichment; app_token kept so filterRow still works
-      // • prev     — previous period for comparison
-      const [currMain, currIds, prev] = await Promise.all([
-        fetchReport(APP_TOKENS, range,     DIMENSIONS_MAIN),
-        fetchReport(APP_TOKENS, range,     DIMENSIONS_IDS),
-        fetchReport(APP_TOKENS, prevRange, DIMENSIONS_MAIN),
+      // • curr       — full dimensions: campaign breakdown with network IDs for Meta matching
+      // • currSimple — day+app_token only: accurate grand totals (no per-campaign-cell
+      //                suppression that hides installs from small cells)
+      // • prev       — previous period for comparison (full dims for prev segment breakdowns)
+      const [curr, currSimple, prev] = await Promise.all([
+        fetchReport(APP_TOKENS, range,     DIMENSIONS),
+        fetchReport(APP_TOKENS, range,     DIMENSIONS_SIMPLE),
+        fetchReport(APP_TOKENS, prevRange, DIMENSIONS),
       ]);
 
       const appTokenSet = new Set(APP_TOKENS);
@@ -229,27 +232,13 @@ export async function GET(req: Request) {
       const filterRow = (r: ReportRow) =>
         (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr;
 
-      // Build campaignName → campaign_id_network mapping from the IDs call
-      const idByName = new Map<string, string>();
-      for (const r of currIds.rows ?? []) {
-        const name = r.campaign as string | undefined;
-        const nid  = r.campaign_id_network as string | undefined;
-        if (name && nid && !idByName.has(name)) idByName.set(name, nid);
-      }
-
-      // Map main rows, injecting the network ID for Meta enrichment lookups
-      const daily = (currMain.rows ?? []).filter(filterRow).map(r => {
-        const row = mapRow(r);
-        const networkId = idByName.get(r.campaign ?? '');
-        if (networkId) row.campaignToken = networkId;
-        return row;
-      });
-      const prevDail = (prev.rows ?? []).filter(filterRow).map(mapRow);
+      const daily    = (curr.rows       ?? []).filter(filterRow).map(mapRow);
+      const prevDail = (prev.rows       ?? []).filter(filterRow).map(mapRow);
 
       // ── Campaigns ────────────────────────────────────────────────────────────
       const campMap = new Map<string, AdjustCampaignSummary>();
       for (const r of daily) {
-        const key = r.campaignName || r.campaignToken;
+        const key = r.campaignToken || r.campaignName;
         const c = campMap.get(key) ?? {
           token: r.campaignToken, name: r.campaignName, appName: r.appName,
           installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0,
@@ -283,8 +272,10 @@ export async function GET(req: Request) {
         cpiEngagement: c.engagement  > 0 ? c.cost / c.engagement  : 0,
       }));
 
-      // ── Totals (computed from rows, not API totals which are account-level) ──
-      const totals     = deriveTotals(sumRows(daily));
+      // ── Totals: use the simplified (day+app_token) rows so the grand install
+      // count isn't suppressed by small (campaign, campaign_id_network) cells ──
+      const simpleDailyRows = (currSimple.rows ?? []).filter(filterRow).map(mapRow);
+      const totals          = deriveTotals(sumRows(simpleDailyRows));
       const prevSum    = sumRows(prevDail);
       const prevTotals = prevSum.installs > 0 || prevSum.cost > 0
         ? deriveTotals(prevSum)
