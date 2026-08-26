@@ -18,7 +18,11 @@ const CHECKOUT_UNIQUE_METRIC   = 'order_checkout_unique_events';
 const ORDER_UNIQUE_METRIC      = 'order_placed_unique_events';
 const PRODUCT_UNIQUE_METRIC    = 'product_detail_open_unique_events';
 
-const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
+// With campaign_id_network: used only to build the campaignName→networkId mapping.
+// Without it: Adjust returns one unsplit row per campaign → no per-cell privacy
+// suppression → accurate install counts. We make both calls in parallel.
+const DIMENSIONS        = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
+const DIMENSIONS_SIMPLE = ['day', 'app', 'app_token', 'campaign'];
 const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
@@ -81,11 +85,12 @@ interface ReportResponse {
 async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
+  dims: string[] = DIMENSIONS,
 ): Promise<ReportResponse> {
   const parts: string[] = [];
   for (const t of appTokens) parts.push(`app_token[]=${encodeURIComponent(t)}`);
   parts.push(`date_period=${range.start_date}:${range.end_date}`);
-  parts.push(`dimensions=${DIMENSIONS.join(',')}`);
+  parts.push(`dimensions=${dims.join(',')}`);
   parts.push(`metrics=${METRICS.join(',')}`);
   // event_kpis[] is silently ignored by Adjust — metric id goes in metrics= directly
   parts.push('limit=50000');
@@ -205,10 +210,23 @@ export async function GET(req: Request) {
       const range     = getRange(datePreset);
       const prevRange = getPrevRange(range);
 
-      const [curr, prev] = await Promise.all([
-        fetchReport(APP_TOKENS, range),
-        fetchReport(APP_TOKENS, prevRange),
+      // Three concurrent Adjust calls:
+      //  • currWithId  — with campaign_id_network: builds campaignName→networkId mapping
+      //  • curr        — without campaign_id_network: accurate install counts (no privacy suppression)
+      //  • prev        — without campaign_id_network: accurate install counts for comparison
+      const [currWithId, curr, prev] = await Promise.all([
+        fetchReport(APP_TOKENS, range, DIMENSIONS),
+        fetchReport(APP_TOKENS, range, DIMENSIONS_SIMPLE),
+        fetchReport(APP_TOKENS, prevRange, DIMENSIONS_SIMPLE),
       ]);
+
+      // Build campaignName → campaign_id_network mapping from the ID-aware call
+      const idByName = new Map<string, string>();
+      for (const r of currWithId.rows ?? []) {
+        const name = r.campaign as string | undefined;
+        const nid  = r.campaign_id_network as string | undefined;
+        if (name && nid && !idByName.has(name)) idByName.set(name, nid);
+      }
 
       const appTokenSet = new Set(APP_TOKENS);
       const todayStr    = fmt(new Date());
@@ -216,7 +234,13 @@ export async function GET(req: Request) {
       const filterRow = (r: ReportRow) =>
         (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr;
 
-      const daily    = (curr.rows ?? []).filter(filterRow).map(mapRow);
+      // Map simple-query rows to AdjustDailyRow, injecting network ID from the mapping
+      const daily = (curr.rows ?? []).filter(filterRow).map(r => {
+        const row = mapRow(r);
+        const networkId = idByName.get(r.campaign ?? '');
+        if (networkId) row.campaignToken = networkId;
+        return row;
+      });
       const prevDail = (prev.rows ?? []).filter(filterRow).map(mapRow);
 
       // ── Campaigns ────────────────────────────────────────────────────────────
