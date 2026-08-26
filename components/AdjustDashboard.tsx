@@ -456,12 +456,14 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   // For campaigns where Adjust reports $0 spend (e.g. web/landing campaign),
   // we inject the real cost from Meta so all KPIs recalculate from it.
   const metaEnrichment = useMemo(() => {
-    const byId      = new Map<string, number>();
-    const byNorm    = new Map<string, number>();
-    const dailyByNorm = new Map<string, Map<string, number>>();
+    const byId           = new Map<string, number>();
+    const byNorm         = new Map<string, number>();
+    const dailyByNorm    = new Map<string, Map<string, number>>();
+    const dailyById      = new Map<string, Map<string, number>>();
+    const dailyByCampName = new Map<string, Map<string, number>>();
     if (!metaDailyRaw) {
       console.log('[meta-enrich] metaDailyRaw is null — skipping');
-      return { byId, byNorm, dailyByNorm };
+      return { byId, byNorm, dailyByNorm, dailyById, dailyByCampName };
     }
     const rowsWithSpend = metaDailyRaw.filter((r) => r.spend > 0);
     console.log(`[meta-enrich] ${metaDailyRaw.length} rows total, ${rowsWithSpend.length} with spend>0`);
@@ -474,9 +476,17 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         const dm = dailyByNorm.get(norm)!;
         dm.set(r.date, (dm.get(r.date) ?? 0) + r.spend);
       }
+      // Per-campaign-ID daily map (exact match for mobile campaigns)
+      if (!dailyById.has(r.campaignId)) dailyById.set(r.campaignId, new Map());
+      const dmi = dailyById.get(r.campaignId)!;
+      dmi.set(r.date, (dmi.get(r.date) ?? 0) + r.spend);
+      // Per-campaign-name daily map (exact match for web campaigns)
+      if (!dailyByCampName.has(r.campaignName)) dailyByCampName.set(r.campaignName, new Map());
+      const dmn = dailyByCampName.get(r.campaignName)!;
+      dmn.set(r.date, (dmn.get(r.date) ?? 0) + r.spend);
     }
     console.log('[meta-enrich] byNorm (name→spend):', Object.fromEntries(byNorm));
-    return { byId, byNorm, dailyByNorm };
+    return { byId, byNorm, dailyByNorm, dailyById, dailyByCampName };
   }, [metaDailyRaw]);
 
   // ── 3. Enriched campaigns — Meta spend injected for $0-cost campaigns ─────
@@ -538,10 +548,18 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
   }, [paidCampaigns, metaEnrichment]);
 
   // ── 4. Enriched daily rows — Meta daily spend injected for $0-cost rows ───
+  // 3-tier lookup to avoid double-counting when sibling campaigns share the same norm:
+  //  1. Exact Meta campaign ID (mobile campaigns with campaign_id_network)
+  //  2. Exact campaign name (web campaigns that match Meta name directly)
+  //  3. Norm fallback (last resort)
   const enrichedDailyRows = useMemo(() => {
     if (!data) return [];
     return data.daily.map(r => {
       if (r.cost > 0) return r;
+      const byIdSpend = metaEnrichment.dailyById.get(r.campaignToken)?.get(r.date) ?? 0;
+      if (byIdSpend > 0) return { ...r, cost: byIdSpend };
+      const byNameSpend = metaEnrichment.dailyByCampName.get(r.campaignName)?.get(r.date) ?? 0;
+      if (byNameSpend > 0) return { ...r, cost: byNameSpend };
       const daySpend = metaEnrichment.dailyByNorm.get(normCampName(r.campaignName))?.get(r.date) ?? 0;
       return daySpend > 0 ? { ...r, cost: daySpend } : r;
     });
