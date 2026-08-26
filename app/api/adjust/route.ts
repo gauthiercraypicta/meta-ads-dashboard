@@ -220,9 +220,13 @@ export async function GET(req: Request) {
       const prevDail = (prev.rows ?? []).filter(filterRow).map(mapRow);
 
       // ── Campaigns ────────────────────────────────────────────────────────────
+      // Key by campaign NAME so that rows with and without campaign_id_network
+      // (both returned by Adjust for the same campaign) aggregate together,
+      // matching what the Adjust UI shows. The campaign_id_network is stored
+      // as token whenever we find a non-empty one (for Meta enrichment lookups).
       const campMap = new Map<string, AdjustCampaignSummary>();
       for (const r of daily) {
-        const key = r.campaignToken || r.campaignName;
+        const key = r.campaignName || r.campaignToken;
         const c = campMap.get(key) ?? {
           token: r.campaignToken, name: r.campaignName, appName: r.appName,
           installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0,
@@ -231,6 +235,8 @@ export async function GET(req: Request) {
           orderPlaceUnique: 0, productDetailOpenUnique: 0,
           cpi: 0, ctr: 0, cpm: 0, cpiEngagement: 0,
         };
+        // Preserve a non-empty campaign_id_network for Meta enrichment
+        if (!c.token && r.campaignToken) c.token = r.campaignToken;
         c.installs    += r.installs;
         c.clicks      += r.clicks;
         c.impressions += r.impressions;
