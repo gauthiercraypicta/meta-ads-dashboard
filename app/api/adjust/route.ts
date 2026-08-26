@@ -18,7 +18,13 @@ const CHECKOUT_UNIQUE_METRIC   = 'order_checkout_unique_events';
 const ORDER_UNIQUE_METRIC      = 'order_placed_unique_events';
 const PRODUCT_UNIQUE_METRIC    = 'product_detail_open_unique_events';
 
-const DIMENSIONS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
+// DIMENSIONS_MAIN: no campaign_id_network → Adjust aggregates all installs per
+// (day, app, campaign) without splitting by network ID. Avoids privacy suppression
+// on small (campaign, network_id) cells that hides installs from the total.
+// DIMENSIONS_IDS: includes campaign_id_network only to build the name→ID mapping
+// for Meta spend enrichment. app_token stays in both so filterRow still works.
+const DIMENSIONS_MAIN = ['day', 'app', 'app_token', 'campaign'];
+const DIMENSIONS_IDS  = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
 const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
@@ -81,11 +87,12 @@ interface ReportResponse {
 async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
+  dims: string[] = DIMENSIONS_MAIN,
 ): Promise<ReportResponse> {
   const parts: string[] = [];
   for (const t of appTokens) parts.push(`app_token[]=${encodeURIComponent(t)}`);
   parts.push(`date_period=${range.start_date}:${range.end_date}`);
-  parts.push(`dimensions=${DIMENSIONS.join(',')}`);
+  parts.push(`dimensions=${dims.join(',')}`);
   parts.push(`metrics=${METRICS.join(',')}`);
   // event_kpis[] is silently ignored by Adjust — metric id goes in metrics= directly
   parts.push('limit=50000');
@@ -205,9 +212,15 @@ export async function GET(req: Request) {
       const range     = getRange(datePreset);
       const prevRange = getPrevRange(range);
 
-      const [curr, prev] = await Promise.all([
-        fetchReport(APP_TOKENS, range),
-        fetchReport(APP_TOKENS, prevRange),
+      // Three concurrent calls:
+      // • currMain — no campaign_id_network: accurate install counts (no cell suppression)
+      // • currIds  — with campaign_id_network: only used to build name→networkId mapping
+      //              for Meta spend enrichment; app_token kept so filterRow still works
+      // • prev     — previous period for comparison
+      const [currMain, currIds, prev] = await Promise.all([
+        fetchReport(APP_TOKENS, range,     DIMENSIONS_MAIN),
+        fetchReport(APP_TOKENS, range,     DIMENSIONS_IDS),
+        fetchReport(APP_TOKENS, prevRange, DIMENSIONS_MAIN),
       ]);
 
       const appTokenSet = new Set(APP_TOKENS);
@@ -216,13 +229,27 @@ export async function GET(req: Request) {
       const filterRow = (r: ReportRow) =>
         (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr;
 
-      const daily    = (curr.rows ?? []).filter(filterRow).map(mapRow);
+      // Build campaignName → campaign_id_network mapping from the IDs call
+      const idByName = new Map<string, string>();
+      for (const r of currIds.rows ?? []) {
+        const name = r.campaign as string | undefined;
+        const nid  = r.campaign_id_network as string | undefined;
+        if (name && nid && !idByName.has(name)) idByName.set(name, nid);
+      }
+
+      // Map main rows, injecting the network ID for Meta enrichment lookups
+      const daily = (currMain.rows ?? []).filter(filterRow).map(r => {
+        const row = mapRow(r);
+        const networkId = idByName.get(r.campaign ?? '');
+        if (networkId) row.campaignToken = networkId;
+        return row;
+      });
       const prevDail = (prev.rows ?? []).filter(filterRow).map(mapRow);
 
       // ── Campaigns ────────────────────────────────────────────────────────────
       const campMap = new Map<string, AdjustCampaignSummary>();
       for (const r of daily) {
-        const key = r.campaignToken || r.campaignName;
+        const key = r.campaignName || r.campaignToken;
         const c = campMap.get(key) ?? {
           token: r.campaignToken, name: r.campaignName, appName: r.appName,
           installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0,
