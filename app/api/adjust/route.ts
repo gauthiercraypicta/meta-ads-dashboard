@@ -216,13 +216,16 @@ export async function GET(req: Request) {
       const range     = getRange(datePreset);
       const prevRange = getPrevRange(range);
 
-      // Three concurrent calls:
-      // • curr    — no campaign_id_network: accurate install counts per campaign/day
-      // • currIds — with campaign_id_network: only for building campaign-name→ID map
-      // • prev    — previous period (same dims as curr)
-      const [curr, currIds, prev] = await Promise.all([
+      // Four concurrent calls:
+      // • curr       — no campaign_id_network: per-campaign breakdown without network-cell suppression
+      // • currIds    — with campaign_id_network: only to build campaign-name → Meta-network-ID map
+      // • currSimple — ['day','app_token'] only: guaranteed-accurate totals (no campaign-cell
+      //                suppression possible — small-volume campaigns can't hide installs here)
+      // • prev       — previous period for comparison
+      const [curr, currIds, currSimple, prev] = await Promise.all([
         fetchReport(APP_TOKENS, range,     DIMENSIONS),
         fetchReport(APP_TOKENS, range,     DIMENSIONS_IDS),
+        fetchReport(APP_TOKENS, range,     ['day', 'app_token']),
         fetchReport(APP_TOKENS, prevRange, DIMENSIONS),
       ]);
 
@@ -290,9 +293,10 @@ export async function GET(req: Request) {
         cpiEngagement: c.engagement  > 0 ? c.cost / c.engagement  : 0,
       }));
 
-      // ── Totals: computed directly from daily rows (no campaign_id_network in
-      // DIMENSIONS means no per-network-cell suppression, so the sum is accurate) ──
-      const totals = deriveTotals(sumRows(daily));
+      // ── Totals: from the ['day','app_token'] call — no campaign-level cell
+      // splitting means privacy suppression cannot hide any installs here ──
+      const dailySimple = (currSimple.rows ?? []).filter(filterRow).map(mapRow);
+      const totals      = deriveTotals(sumRows(dailySimple));
       const prevSum    = sumRows(prevDail);
       const prevTotals = prevSum.installs > 0 || prevSum.cost > 0
         ? deriveTotals(prevSum)
@@ -325,7 +329,7 @@ export async function GET(req: Request) {
 
       const apps = [...new Map(daily.map((r) => [r.appToken, { token: r.appToken, name: r.appName }])).values()];
 
-      return { daily, campaigns, totals, prevTotals, genericPrevTotals, iconicPrevTotals, otherPaidPrevTotals, noncampPrevTotals, apps, currency: 'USD' };
+      return { daily, dailySimple, campaigns, totals, prevTotals, genericPrevTotals, iconicPrevTotals, otherPaidPrevTotals, noncampPrevTotals, apps, currency: 'USD' };
     });
 
     return NextResponse.json(result);

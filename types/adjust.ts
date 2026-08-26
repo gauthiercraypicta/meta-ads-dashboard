@@ -70,6 +70,7 @@ export interface AdjustTotals {
 
 export interface AdjustResponse {
   daily: AdjustDailyRow[];
+  dailySimple: AdjustDailyRow[];   // ['day','app_token'] rows — no campaign split, no privacy suppression
   campaigns: AdjustCampaignSummary[];
   totals: AdjustTotals;
   prevTotals: AdjustTotals | null;

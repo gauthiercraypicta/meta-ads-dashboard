@@ -70,7 +70,7 @@ function generateMock(): AdjustResponse {
   const iconicPrevTotals    = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.2), cost: prevTotals.cost * 0.2, engagement: Math.round(prevTotals.engagement * 0.2), cpi: prevTotals.cpi * 0.95, cpiEngagement: prevTotals.cpiEngagement * 0.95 };
   const otherPaidPrevTotals = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.3), cost: prevTotals.cost * 0.3, engagement: Math.round(prevTotals.engagement * 0.3), cpi: prevTotals.cpi * 1.02, cpiEngagement: prevTotals.cpiEngagement * 1.02 };
   const noncampPrevTotals   = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.15), cost: 0, engagement: Math.round(prevTotals.engagement * 0.1), cpi: 0, cpiEngagement: 0 };
-  return { daily, campaigns: campSummary, totals, prevTotals, genericPrevTotals, iconicPrevTotals, otherPaidPrevTotals, noncampPrevTotals, apps, currency: 'USD' };
+  return { daily, dailySimple: daily, campaigns: campSummary, totals, prevTotals, genericPrevTotals, iconicPrevTotals, otherPaidPrevTotals, noncampPrevTotals, apps, currency: 'USD' };
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -611,21 +611,34 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   // ── 7. Daily chart points — filtered by same segment ─────────────────────
   const dailyPoints = useMemo<DailyPoint[]>(() => {
-    let rows = enrichedDailyRows;
     const isFiltered = showGenericOnly || kpiSegment !== 'all';
+    let rows: typeof enrichedDailyRows;
+
     if (isFiltered) {
+      rows = enrichedDailyRows;
       if (kpiSegment === 'noncamp') {
-        // Show rows NOT belonging to any paid campaign
         const paidTokens = new Set(enrichedPaidCampaigns.map((c) => c.token));
         rows = enrichedDailyRows.filter((r) => !paidTokens.has(r.campaignToken));
       } else {
         const segTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
         rows = enrichedDailyRows.filter((r) => segTokens.has(r.campaignToken));
       }
+    } else if (data?.dailySimple?.length) {
+      // Unfiltered "all" view: use the ['day','app_token'] rows for installs/engagement
+      // (no campaign-cell splitting → no privacy suppression → matches Adjust UI).
+      // Cost comes from enrichedDailyRows which has Meta spend injected for web campaigns.
+      const enrichedCostByDate = new Map<string, number>();
+      for (const r of enrichedDailyRows) {
+        enrichedCostByDate.set(r.date, (enrichedCostByDate.get(r.date) ?? 0) + r.cost);
+      }
+      rows = data.dailySimple.map((r) => ({ ...r, cost: enrichedCostByDate.get(r.date) ?? r.cost }));
+    } else {
+      rows = enrichedDailyRows;
     }
+
     const pts = aggregateByDate(rows);
     return granularity === 'week' ? toWeekly(pts) : pts;
-  }, [enrichedDailyRows, enrichedPaidCampaigns, filteredPaidCampaigns, granularity, showGenericOnly, kpiSegment]);
+  }, [enrichedDailyRows, enrichedPaidCampaigns, filteredPaidCampaigns, granularity, showGenericOnly, kpiSegment, data]);
 
   const sortedCampaigns = useMemo(() => {
     return [...filteredPaidCampaigns].sort((a, b) => {
@@ -953,10 +966,11 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
   // ── Daily aggregation for the weekly performance table ───────────────────
   const dailyAggByDate = useMemo(() => {
-    // Re-use the same segment filtering logic as dailyPoints for consistency
-    let rows = enrichedDailyRows;
     const isFiltered = showGenericOnly || kpiSegment !== 'all';
+    let rows: typeof enrichedDailyRows;
+
     if (isFiltered) {
+      rows = enrichedDailyRows;
       if (kpiSegment === 'noncamp') {
         const paidTokens = new Set(enrichedPaidCampaigns.map((c) => c.token));
         rows = rows.filter((r) => !paidTokens.has(r.campaignToken));
@@ -964,6 +978,14 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         const segTokens = new Set(filteredPaidCampaigns.map((c) => c.token));
         rows = rows.filter((r) => segTokens.has(r.campaignToken));
       }
+    } else if (data?.dailySimple?.length) {
+      const enrichedCostByDate = new Map<string, number>();
+      for (const r of enrichedDailyRows) {
+        enrichedCostByDate.set(r.date, (enrichedCostByDate.get(r.date) ?? 0) + r.cost);
+      }
+      rows = data.dailySimple.map((r) => ({ ...r, cost: enrichedCostByDate.get(r.date) ?? r.cost }));
+    } else {
+      rows = enrichedDailyRows;
     }
     const map = new Map<string, {
       date: string; installs: number; clicks: number; cost: number; engagement: number;
@@ -987,7 +1009,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     return Array.from(map.values())
       .filter((d) => d.installs > 0 || d.cost > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
-  }, [enrichedDailyRows, enrichedPaidCampaigns, filteredPaidCampaigns, showGenericOnly, kpiSegment]);
+  }, [enrichedDailyRows, enrichedPaidCampaigns, filteredPaidCampaigns, showGenericOnly, kpiSegment, data]);
 
   const toggleCamp = useCallback((key: string) => {
     setHiddenCamps((prev) => {
