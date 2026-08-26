@@ -21,10 +21,12 @@ const PRODUCT_UNIQUE_METRIC    = 'product_detail_open_unique_events';
 // With campaign_id_network: used only to build the campaignName→networkId mapping.
 // Without it: Adjust returns one unsplit row per campaign → no per-cell privacy
 // suppression → accurate install counts. We make both calls in parallel.
+// DIMENSIONS_SIMPLE uses the bare minimum dimensions so Adjust never suppresses
+// a cell due to insufficient user counts at finer granularity.
 const DIMENSIONS        = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
-const DIMENSIONS_SIMPLE = ['day', 'app', 'app_token', 'campaign'];
+const DIMENSIONS_SIMPLE = ['day', 'campaign'];  // minimal: one row per (day, campaign) across all apps
 const METRICS    = [
-  'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
+  'installs', 'reattributions', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
   CART_UNIQUE_METRIC, CHECKOUT_UNIQUE_METRIC, ORDER_UNIQUE_METRIC, PRODUCT_UNIQUE_METRIC,
 ];
@@ -68,6 +70,7 @@ interface ReportRow {
   campaign_id_network?: string;
   os_name?:             string;
   installs?:            number;
+  reattributions?:      number;
   clicks?:              number;
   impressions?:         number;
   cost?:                number;
@@ -140,7 +143,7 @@ function mapRow(r: ReportRow): AdjustDailyRow {
     appName:       r.app          ?? r.app_token ?? '',
     campaignToken: r.campaign_id_network ?? r.campaign ?? '',
     campaignName:  r.campaign     ?? '',
-    installs:      Number(r.installs        ?? 0),
+    installs:      Number(r.installs ?? 0) + Number(r.reattributions ?? 0),
     clicks:        Number(r.clicks          ?? 0),
     impressions:   Number(r.impressions     ?? 0),
     cost:          Number(r.cost            ?? 0),
