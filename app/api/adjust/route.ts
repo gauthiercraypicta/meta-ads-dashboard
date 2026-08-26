@@ -2,11 +2,9 @@ import { NextResponse } from 'next/server';
 import { withCache } from '@/lib/apiCache';
 import type { AdjustDailyRow, AdjustCampaignSummary, AdjustTotals, AdjustResponse } from '@/types/adjust';
 
-const TTL          = 30 * 60 * 1000;
-const KPI_BASE_URL = 'https://api.adjust.com/kpis/v1';
-const REPORT_URL   = 'https://dash.adjust.com/control-center/reports-service/report';
+const TTL        = 30 * 60 * 1000;
+const REPORT_URL = 'https://dash.adjust.com/control-center/reports-service/report';
 
-// Event metric IDs (Reports Service format — for engagement/cart/checkout/order events)
 const ENGAGE_TOKEN           = 'install_engagement_events';
 const CART_METRIC            = 'cart_item_add_events';
 const CHECKOUT_METRIC        = 'order_checkout_events';
@@ -17,16 +15,17 @@ const CHECKOUT_UNIQUE_METRIC = 'order_checkout_unique_events';
 const ORDER_UNIQUE_METRIC    = 'order_placed_unique_events';
 const PRODUCT_UNIQUE_METRIC  = 'product_detail_open_unique_events';
 
-// KPI Service metrics (installs here = what Adjust UI shows, includes all attribution types)
-const KPI_METRICS = ['installs', 'clicks', 'impressions', 'cost'];
+// dimensions=day only → accurate grand totals (includes organic, no suppression)
+const DIMENSIONS_DAY  = ['day'];
+const METRICS_BASE    = ['installs', 'clicks', 'impressions', 'cost'];
 
-// Reports Service: only needed for event metrics
-const EVENT_METRICS = [
-  ENGAGE_TOKEN,
+// dimensions=day,campaign → per-campaign breakdown + events
+const DIMENSIONS_CAMP = ['day', 'campaign'];
+const METRICS_ALL     = [
+  'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
   CART_UNIQUE_METRIC, CHECKOUT_UNIQUE_METRIC, ORDER_UNIQUE_METRIC, PRODUCT_UNIQUE_METRIC,
 ];
-const DIMENSIONS_EVENTS = ['day', 'campaign'];
 
 const API_TOKEN  = process.env.ADJUST_API_TOKEN  ?? '';
 const APP_TOKENS = (process.env.ADJUST_APP_TOKENS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -57,33 +56,7 @@ function getPrevRange(curr: { start_date: string; end_date: string }): { start_d
   return { start_date: fmt(new Date(end.getTime() - dur)), end_date: fmt(end) };
 }
 
-// ─── KPI Service v1 types ─────────────────────────────────────────────────────
-
-interface KpiDate {
-  date:       string;
-  kpi_values: number[];
-}
-
-interface KpiCampaign {
-  token:      string;
-  name:       string;
-  kpi_values: number[];
-  dates?:     KpiDate[];
-}
-
-interface KpiResultSet {
-  token:      string;
-  name:       string;
-  currency:   string;
-  campaigns?: KpiCampaign[];
-}
-
-interface KpiResponse {
-  result_parameters: { kpis: string[] };
-  result_set:        KpiResultSet;
-}
-
-// ─── Reports Service types (events only) ──────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ReportRow {
   day?:                 string;
@@ -91,6 +64,10 @@ interface ReportRow {
   campaign_id_network?: string;
   app_token?:           string;
   app?:                 string;
+  installs?:            number;
+  clicks?:              number;
+  impressions?:         number;
+  cost?:                number;
   [key: string]:        unknown;
 }
 
@@ -100,141 +77,60 @@ interface ReportResponse {
   warnings?: unknown[];
 }
 
-// ─── KPI Service fetcher ──────────────────────────────────────────────────────
+// ─── Fetcher ──────────────────────────────────────────────────────────────────
 
-async function fetchKpiReport(
-  appToken: string,
-  range: { start_date: string; end_date: string },
-): Promise<KpiResponse> {
-  const params = new URLSearchParams({
-    start_date: range.start_date,
-    end_date:   range.end_date,
-    kpis:       KPI_METRICS.join(','),
-    grouping:   'campaigns,day',
-    period:     'day',
-  });
-  const url = `${KPI_BASE_URL}/${encodeURIComponent(appToken)}.json?${params}`;
-  console.log('[Adjust KPI] requesting:', url);
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${API_TOKEN}` } });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Adjust KPI API HTTP ${res.status} | url=${url.slice(0, 300)} | body=${body.slice(0, 300)}`);
-  }
-  return res.json() as Promise<KpiResponse>;
-}
-
-// ─── Reports Service fetcher (events only) ────────────────────────────────────
-
-async function fetchEventReport(
+async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
+  dims: string[],
+  metrics: string[],
 ): Promise<ReportResponse> {
   const parts: string[] = [];
   for (const t of appTokens) parts.push(`app_token[]=${encodeURIComponent(t)}`);
   parts.push(`date_period=${range.start_date}:${range.end_date}`);
-  parts.push(`dimensions=${DIMENSIONS_EVENTS.join(',')}`);
-  parts.push(`metrics=${EVENT_METRICS.join(',')}`);
+  parts.push(`dimensions=${dims.join(',')}`);
+  parts.push(`metrics=${metrics.join(',')}`);
   parts.push('limit=50000');
   const url = `${REPORT_URL}?${parts.join('&')}`;
-  console.log('[Adjust Report] requesting:', url);
+  console.log('[Adjust] requesting:', url);
   const res = await fetch(url, { headers: { Authorization: `Bearer ${API_TOKEN}` } });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`Adjust Report API HTTP ${res.status} | body=${body.slice(0, 300)}`);
+    throw new Error(`Adjust Report API HTTP ${res.status} | url=${url.slice(0, 300)} | body=${body.slice(0, 300)}`);
   }
   return res.json() as Promise<ReportResponse>;
 }
 
-// ─── Flatten KPI Service response ─────────────────────────────────────────────
-
-interface KpiRow {
-  date: string; campaignToken: string; campaignName: string;
-  appToken: string; appName: string;
-  installs: number; clicks: number; impressions: number; cost: number;
-}
-
-function flattenKpiRows(resp: KpiResponse, todayStr: string): KpiRow[] {
-  const kpis = resp.result_parameters?.kpis ?? KPI_METRICS;
-  const iI  = kpis.indexOf('installs');
-  const iC  = kpis.indexOf('clicks');
-  const iP  = kpis.indexOf('impressions');
-  const iCo = kpis.indexOf('cost');
-  const rows: KpiRow[] = [];
-  for (const camp of resp.result_set.campaigns ?? []) {
-    for (const d of camp.dates ?? []) {
-      if (d.date >= todayStr) continue; // exclude today (partial data)
-      rows.push({
-        date:          d.date,
-        campaignToken: camp.token,
-        campaignName:  camp.name,
-        appToken:      resp.result_set.token,
-        appName:       resp.result_set.name,
-        installs:      iI  >= 0 ? (d.kpi_values[iI]  ?? 0) : 0,
-        clicks:        iC  >= 0 ? (d.kpi_values[iC]  ?? 0) : 0,
-        impressions:   iP  >= 0 ? (d.kpi_values[iP]  ?? 0) : 0,
-        cost:          iCo >= 0 ? (d.kpi_values[iCo] ?? 0) : 0,
-      });
-    }
-  }
-  return rows;
-}
-
-// ─── Event map from Reports Service rows ──────────────────────────────────────
-
-interface EventEntry {
-  engagement: number; cartAdd: number; checkout: number; orderPlace: number;
-  productDetailOpen: number; cartAddUnique: number; checkoutUnique: number;
-  orderPlaceUnique: number; productDetailOpenUnique: number;
-}
-
-const EMPTY_EVENTS: EventEntry = {
-  engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, productDetailOpen: 0,
-  cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0,
-};
-
-function buildEventMap(rows: ReportRow[], todayStr: string): Map<string, EventEntry> {
-  const map = new Map<string, EventEntry>();
-  for (const r of rows) {
-    if ((r.day ?? '') >= todayStr) continue;
-    const key = `${r.campaign ?? ''}::${r.day ?? ''}`;
-    const e = map.get(key) ?? { ...EMPTY_EVENTS };
-    e.engagement             += Number(r[ENGAGE_TOKEN]           ?? 0);
-    e.cartAdd                += Number(r[CART_METRIC]            ?? 0);
-    e.checkout               += Number(r[CHECKOUT_METRIC]        ?? 0);
-    e.orderPlace             += Number(r[ORDER_METRIC]           ?? 0);
-    e.productDetailOpen      += Number(r[PRODUCT_DETAIL_METRIC]  ?? 0);
-    e.cartAddUnique          += Number(r[CART_UNIQUE_METRIC]     ?? 0);
-    e.checkoutUnique         += Number(r[CHECKOUT_UNIQUE_METRIC] ?? 0);
-    e.orderPlaceUnique       += Number(r[ORDER_UNIQUE_METRIC]    ?? 0);
-    e.productDetailOpenUnique += Number(r[PRODUCT_UNIQUE_METRIC] ?? 0);
-    map.set(key, e);
-  }
-  return map;
-}
-
-// ─── Merge KPI rows + event metrics ──────────────────────────────────────────
-
-function mergeRows(kpiRows: KpiRow[], eventMap: Map<string, EventEntry>): AdjustDailyRow[] {
-  return kpiRows.map(r => {
-    const ev = eventMap.get(`${r.campaignName}::${r.date}`) ?? { ...EMPTY_EVENTS };
-    return {
-      date:          r.date,
-      appToken:      r.appToken,
-      appName:       r.appName,
-      campaignToken: r.campaignToken,
-      campaignName:  r.campaignName,
-      installs:      r.installs,
-      clicks:        r.clicks,
-      impressions:   r.impressions,
-      cost:          r.cost,
-      sessions:      0,
-      timeSpent:     0,
-      ...ev,
-    };
-  });
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function extractEngagement(r: ReportRow): number {
+  return Number(r[ENGAGE_TOKEN] ?? 0);
+}
+
+function mapRow(r: ReportRow): AdjustDailyRow {
+  return {
+    date:          r.day          ?? '',
+    appToken:      r.app_token    ?? '',
+    appName:       r.app          ?? r.app_token ?? '',
+    campaignToken: r.campaign_id_network ?? r.campaign ?? '',
+    campaignName:  r.campaign     ?? '',
+    installs:      Number(r.installs    ?? 0),
+    clicks:        Number(r.clicks      ?? 0),
+    impressions:   Number(r.impressions ?? 0),
+    cost:          Number(r.cost        ?? 0),
+    sessions:      0,
+    engagement:    extractEngagement(r),
+    cartAdd:              Number(r[CART_METRIC]            ?? 0),
+    checkout:             Number(r[CHECKOUT_METRIC]        ?? 0),
+    orderPlace:           Number(r[ORDER_METRIC]           ?? 0),
+    productDetailOpen:    Number(r[PRODUCT_DETAIL_METRIC]  ?? 0),
+    cartAddUnique:        Number(r[CART_UNIQUE_METRIC]     ?? 0),
+    checkoutUnique:       Number(r[CHECKOUT_UNIQUE_METRIC] ?? 0),
+    orderPlaceUnique:     Number(r[ORDER_UNIQUE_METRIC]    ?? 0),
+    productDetailOpenUnique: Number(r[PRODUCT_UNIQUE_METRIC] ?? 0),
+    timeSpent:  0,
+  };
+}
 
 function deriveTotals(t: {
   installs: number; clicks: number; impressions: number; cost: number; engagement: number;
@@ -259,6 +155,13 @@ type RowSum = {
   orderPlaceUnique: number; productDetailOpenUnique: number;
 };
 
+const ZERO_SUM: RowSum = {
+  installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0,
+  cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0,
+  productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0,
+  orderPlaceUnique: 0, productDetailOpenUnique: 0,
+};
+
 function sumRows(rows: AdjustDailyRow[]): RowSum {
   return rows.reduce<RowSum>(
     (a, r) => ({
@@ -277,13 +180,21 @@ function sumRows(rows: AdjustDailyRow[]): RowSum {
       orderPlaceUnique:        a.orderPlaceUnique        + r.orderPlaceUnique,
       productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique,
     }),
-    {
-      installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0,
-      cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0,
-      productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0,
-      orderPlaceUnique: 0, productDetailOpenUnique: 0,
-    },
+    { ...ZERO_SUM },
   );
+}
+
+// Sum the day-level report rows (no campaign field) for accurate totals
+function sumDayRows(rows: ReportRow[], todayStr: string): Pick<RowSum, 'installs' | 'clicks' | 'impressions' | 'cost'> {
+  let installs = 0, clicks = 0, impressions = 0, cost = 0;
+  for (const r of rows) {
+    if ((r.day ?? '') >= todayStr) continue;
+    installs    += Number(r.installs    ?? 0);
+    clicks      += Number(r.clicks      ?? 0);
+    impressions += Number(r.impressions ?? 0);
+    cost        += Number(r.cost        ?? 0);
+  }
+  return { installs, clicks, impressions, cost };
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -305,29 +216,24 @@ export async function GET(req: Request) {
       const prevRange = getPrevRange(range);
       const todayStr  = fmt(new Date());
 
-      // Concurrent: KPI Service per-app (current + prev) + Reports Service events (current + prev)
-      // KPI Service gives install counts matching the Adjust UI (correct attribution methodology)
-      // Reports Service gives engagement/cart/checkout/order event metrics
-      const [kpiCurrentResults, kpiPrevResults, evtCurrent, evtPrev] = await Promise.all([
-        Promise.all(APP_TOKENS.map(t => fetchKpiReport(t, range))),
-        Promise.all(APP_TOKENS.map(t => fetchKpiReport(t, prevRange))),
-        fetchEventReport(APP_TOKENS, range),
-        fetchEventReport(APP_TOKENS, prevRange),
+      // Four concurrent calls:
+      // • dayRep      — dimensions=day: accurate grand totals including organic installs
+      // • campRep     — dimensions=day,campaign: per-campaign breakdown + event metrics
+      // • prevDayRep  — same as dayRep but for prev period
+      // • prevCampRep — same as campRep but for prev period
+      const [dayRep, campRep, prevDayRep, prevCampRep] = await Promise.all([
+        fetchReport(APP_TOKENS, range,     DIMENSIONS_DAY,  METRICS_BASE),
+        fetchReport(APP_TOKENS, range,     DIMENSIONS_CAMP, METRICS_ALL),
+        fetchReport(APP_TOKENS, prevRange, DIMENSIONS_DAY,  METRICS_BASE),
+        fetchReport(APP_TOKENS, prevRange, DIMENSIONS_CAMP, METRICS_ALL),
       ]);
 
-      // Flatten KPI rows from all apps
-      const kpiCurrRows = kpiCurrentResults.flatMap(r => flattenKpiRows(r, todayStr));
-      const kpiPrevRows = kpiPrevResults.flatMap(r => flattenKpiRows(r, todayStr));
+      const filterRow = (r: ReportRow) => (r.day ?? '') < todayStr;
 
-      // Build event maps keyed by "campaignName::date"
-      const eventMapCurr = buildEventMap(evtCurrent.rows ?? [], todayStr);
-      const eventMapPrev = buildEventMap(evtPrev.rows    ?? [], todayStr);
+      const daily    = (campRep.rows     ?? []).filter(filterRow).map(mapRow);
+      const prevDail = (prevCampRep.rows ?? []).filter(filterRow).map(mapRow);
 
-      // Merge
-      const daily    = mergeRows(kpiCurrRows, eventMapCurr);
-      const prevDail = mergeRows(kpiPrevRows, eventMapPrev);
-
-      // ── Campaigns ─────────────────────────────────────────────────────────────
+      // ── Campaigns ────────────────────────────────────────────────────────────
       const campMap = new Map<string, AdjustCampaignSummary>();
       for (const r of daily) {
         const key = r.campaignName || r.campaignToken;
@@ -366,10 +272,31 @@ export async function GET(req: Request) {
       }));
 
       // ── Totals ────────────────────────────────────────────────────────────────
-      const totals     = deriveTotals(sumRows(daily));
-      const prevSum    = sumRows(prevDail);
-      const prevTotals = prevSum.installs > 0 || prevSum.cost > 0
-        ? deriveTotals(prevSum)
+      // Use day-level (no campaign dimension) for installs/clicks/impressions/cost:
+      // this captures organic installs and avoids any campaign-level suppression,
+      // matching what the Adjust UI reports. Events stay from campaign-level sum.
+      const dayBase     = sumDayRows(dayRep.rows     ?? [], todayStr);
+      const prevDayBase = sumDayRows(prevDayRep.rows ?? [], todayStr);
+      const campSum     = sumRows(daily);
+      const prevCampSum = sumRows(prevDail);
+
+      const totals = deriveTotals({
+        ...campSum,
+        installs:    dayBase.installs,
+        clicks:      dayBase.clicks,
+        impressions: dayBase.impressions,
+        cost:        dayBase.cost,
+      });
+
+      const prevBaseTotal = {
+        ...prevCampSum,
+        installs:    prevDayBase.installs,
+        clicks:      prevDayBase.clicks,
+        impressions: prevDayBase.impressions,
+        cost:        prevDayBase.cost,
+      };
+      const prevTotals = prevBaseTotal.installs > 0 || prevBaseTotal.cost > 0
+        ? deriveTotals(prevBaseTotal)
         : null;
 
       function prevSegment(filter: (r: AdjustDailyRow) => boolean): AdjustTotals | null {
@@ -383,10 +310,10 @@ export async function GET(req: Request) {
       const otherPaidPrevTotals = prevSegment((r) => r.cost > 0 && !n(r.campaignName).includes('generic') && !n(r.campaignName).includes('iconic'));
 
       const paidPrevSum = sumRows(prevDail.filter((r) => r.cost > 0));
-      const noncampPrevInstalls    = Math.max(0, prevSum.installs    - paidPrevSum.installs);
-      const noncampPrevEngagement  = Math.max(0, prevSum.engagement  - paidPrevSum.engagement);
-      const noncampPrevClicks      = Math.max(0, prevSum.clicks      - paidPrevSum.clicks);
-      const noncampPrevImpressions = Math.max(0, prevSum.impressions - paidPrevSum.impressions);
+      const noncampPrevInstalls    = Math.max(0, prevDayBase.installs    - paidPrevSum.installs);
+      const noncampPrevEngagement  = Math.max(0, prevCampSum.engagement  - paidPrevSum.engagement);
+      const noncampPrevClicks      = Math.max(0, prevDayBase.clicks      - paidPrevSum.clicks);
+      const noncampPrevImpressions = Math.max(0, prevDayBase.impressions - paidPrevSum.impressions);
       const noncampPrevTotals: AdjustTotals | null = noncampPrevInstalls > 0 ? {
         installs: noncampPrevInstalls, clicks: noncampPrevClicks, impressions: noncampPrevImpressions,
         cost: 0, sessions: 0, engagement: noncampPrevEngagement,
