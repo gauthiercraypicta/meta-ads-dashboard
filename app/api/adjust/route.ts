@@ -26,7 +26,7 @@ const PRODUCT_UNIQUE_METRIC    = 'product_detail_open_unique_events';
 const DIMENSIONS        = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
 const DIMENSIONS_SIMPLE = ['day', 'campaign'];  // minimal: one row per (day, campaign) across all apps
 const METRICS    = [
-  'installs', 'reattributions', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
+  'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
   CART_UNIQUE_METRIC, CHECKOUT_UNIQUE_METRIC, ORDER_UNIQUE_METRIC, PRODUCT_UNIQUE_METRIC,
 ];
@@ -143,7 +143,7 @@ function mapRow(r: ReportRow): AdjustDailyRow {
     appName:       r.app          ?? r.app_token ?? '',
     campaignToken: r.campaign_id_network ?? r.campaign ?? '',
     campaignName:  r.campaign     ?? '',
-    installs:      Number(r.installs ?? 0) + Number(r.reattributions ?? 0),
+    installs:      Number(r.installs ?? 0),
     clicks:        Number(r.clicks          ?? 0),
     impressions:   Number(r.impressions     ?? 0),
     cost:          Number(r.cost            ?? 0),
