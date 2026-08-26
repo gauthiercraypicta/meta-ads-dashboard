@@ -18,17 +18,16 @@ const CHECKOUT_UNIQUE_METRIC   = 'order_checkout_unique_events';
 const ORDER_UNIQUE_METRIC      = 'order_placed_unique_events';
 const PRODUCT_UNIQUE_METRIC    = 'product_detail_open_unique_events';
 
-// Main dimensions — no campaign_id_network. Without it, Adjust doesn't split
-// rows by (campaign, network_id) pairs, so small-cell privacy suppression
-// cannot zero out installs. Campaign install counts and daily rows match the
-// Adjust UI. app_token must stay so filterRow can isolate the right app.
+// Daily breakdown — no campaign_id_network (reduces network-ID cell splitting),
+// app_token required for filterRow. Used for per-campaign daily chart only.
 const DIMENSIONS = ['day', 'app', 'app_token', 'campaign'];
 
-// IDs-only call — same period, adds campaign_id_network. Used exclusively to
-// build the campaign-name → Meta-network-ID mapping so campaignToken in the
-// returned daily rows carries the numeric Meta campaign ID (needed for the
-// Adjust vs Meta comparison chart and for daily spend enrichment by ID).
-const DIMENSIONS_IDS = ['day', 'app', 'app_token', 'campaign', 'campaign_id_network'];
+// Period-level campaign summary — no 'day' dimension. Each cell covers the
+// entire requested date range for one campaign. Period totals are far above
+// Adjust's per-day privacy threshold, so install counts are never suppressed.
+// The numeric Meta campaign ID is embedded in Adjust's campaign name field as
+// "(52677527822617)", so extractNetworkId() derives it without an extra call.
+const DIMENSIONS_CAMP = ['app', 'app_token', 'campaign'];
 const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
@@ -118,6 +117,14 @@ async function fetchReport(
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Adjust appends the Meta network campaign ID to the campaign name in parentheses:
+// "Picta_Android_generic (52677527822617)" → returns "52677527822617"
+// Returns undefined when the name has no such suffix (organic, web, unknown…).
+function extractNetworkId(name: string): string | undefined {
+  const m = name.match(/\((\d{10,})\)\s*$/);
+  return m ? m[1] : undefined;
+}
+
 function extractEngagement(r: ReportRow): number {
   // Key in response rows matches the event_kpis[] id: install_engagement_events
   return Number(r[ENGAGE_TOKEN] ?? 0);
@@ -140,12 +147,14 @@ function deriveTotals(t: {
 }
 
 function mapRow(r: ReportRow): AdjustDailyRow {
+  const name = r.campaign ?? '';
   return {
     date:          r.day          ?? '',
     appToken:      r.app_token    ?? '',
     appName:       r.app          ?? r.app_token ?? '',
-    campaignToken: r.campaign_id_network ?? r.campaign ?? '',
-    campaignName:  r.campaign     ?? '',
+    // Prefer explicit campaign_id_network, then extract from name "(12345)", then name itself
+    campaignToken: r.campaign_id_network ?? extractNetworkId(name) ?? name,
+    campaignName:  name,
     installs:      Number(r.installs        ?? 0),
     clicks:        Number(r.clicks          ?? 0),
     impressions:   Number(r.impressions     ?? 0),
@@ -217,14 +226,16 @@ export async function GET(req: Request) {
       const prevRange = getPrevRange(range);
 
       // Four concurrent calls:
-      // • curr       — no campaign_id_network: per-campaign breakdown without network-cell suppression
-      // • currIds    — with campaign_id_network: only to build campaign-name → Meta-network-ID map
-      // • currSimple — ['day','app_token'] only: guaranteed-accurate totals (no campaign-cell
-      //                suppression possible — small-volume campaigns can't hide installs here)
-      // • prev       — previous period for comparison
-      const [curr, currIds, currSimple, prev] = await Promise.all([
+      // • curr       — ['day','app','app_token','campaign']: daily rows for per-campaign charts
+      // • currCamp   — ['app','app_token','campaign']: period-level campaign totals.
+      //                No 'day' → each cell covers the whole period → period install count
+      //                is always well above Adjust's per-day privacy threshold.
+      // • currSimple — ['day','app_token']: suppression-free daily totals for KPI cards
+      //                and the "all campaigns" aggregate daily chart.
+      // • prev       — previous period daily rows for comparison
+      const [curr, currCamp, currSimple, prev] = await Promise.all([
         fetchReport(APP_TOKENS, range,     DIMENSIONS),
-        fetchReport(APP_TOKENS, range,     DIMENSIONS_IDS),
+        fetchReport(APP_TOKENS, range,     DIMENSIONS_CAMP),
         fetchReport(APP_TOKENS, range,     ['day', 'app_token']),
         fetchReport(APP_TOKENS, prevRange, DIMENSIONS),
       ]);
@@ -232,56 +243,47 @@ export async function GET(req: Request) {
       const appTokenSet = new Set(APP_TOKENS);
       const todayStr    = fmt(new Date());
 
+      // filterRow: keep only this app's data, exclude today (partial day)
       const filterRow = (r: ReportRow) =>
         (!r.app_token || appTokenSet.has(r.app_token)) && (r.day ?? '') < todayStr;
 
-      // Build campaign-name → network-ID map from the IDs call (first occurrence wins)
-      const idByName = new Map<string, string>();
-      for (const r of currIds.rows ?? []) {
-        const name = r.campaign;
-        const nid  = r.campaign_id_network;
-        if (name && nid && !idByName.has(name)) idByName.set(name, nid);
-      }
+      // For period-level rows (no 'day' field): filter by app_token only
+      const filterCampRow = (r: ReportRow) => !r.app_token || appTokenSet.has(r.app_token);
 
-      // Map main rows, injecting the numeric Meta campaign ID into campaignToken
-      // so downstream enrichment and the Adjust↔Meta comparison chart can match by ID
-      const daily = (curr.rows ?? []).filter(filterRow).map(r => {
-        const row = mapRow(r);
-        const nid = idByName.get(row.campaignName);
-        if (nid) row.campaignToken = nid;
-        return row;
-      });
-      const prevDail = (prev.rows ?? []).filter(filterRow).map(mapRow);
+      // mapRow now extracts the network ID from the campaign name automatically
+      // (Adjust embeds it as "Campaign Name (52677527822617)"), so no extra IDs call needed.
+      const daily    = (curr.rows     ?? []).filter(filterRow).map(mapRow);
+      const prevDail = (prev.rows     ?? []).filter(filterRow).map(mapRow);
 
-      // ── Campaigns ────────────────────────────────────────────────────────────
-      // Key by campaignName (stable) since campaignToken is now the injected
-      // network ID and may differ from what the main call returns for the same
-      // campaign — using name prevents accidental duplicate entries.
+      // ── Campaigns — built from the period-level call ─────────────────────────
+      // Period totals per campaign are NOT split by day, so privacy suppression
+      // that would zero a (day, campaign) cell cannot apply here.
       const campMap = new Map<string, AdjustCampaignSummary>();
-      for (const r of daily) {
-        const key = r.campaignName || r.campaignToken;
+      for (const r of (currCamp.rows ?? []).filter(filterCampRow)) {
+        const row = mapRow(r);
+        const key = row.campaignToken || row.campaignName;
         const c = campMap.get(key) ?? {
-          token: r.campaignToken, name: r.campaignName, appName: r.appName,
+          token: row.campaignToken, name: row.campaignName, appName: row.appName,
           installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0,
           cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0,
           productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0,
           orderPlaceUnique: 0, productDetailOpenUnique: 0,
           cpi: 0, ctr: 0, cpm: 0, cpiEngagement: 0,
         };
-        c.installs    += r.installs;
-        c.clicks      += r.clicks;
-        c.impressions += r.impressions;
-        c.cost        += r.cost;
-        c.engagement  += r.engagement;
-        c.cartAdd     += r.cartAdd;
-        c.checkout    += r.checkout;
-        c.orderPlace  += r.orderPlace;
-        c.timeSpent   += r.timeSpent;
-        c.productDetailOpen       += r.productDetailOpen;
-        c.cartAddUnique           += r.cartAddUnique;
-        c.checkoutUnique          += r.checkoutUnique;
-        c.orderPlaceUnique        += r.orderPlaceUnique;
-        c.productDetailOpenUnique += r.productDetailOpenUnique;
+        c.installs    += row.installs;
+        c.clicks      += row.clicks;
+        c.impressions += row.impressions;
+        c.cost        += row.cost;
+        c.engagement  += row.engagement;
+        c.cartAdd     += row.cartAdd;
+        c.checkout    += row.checkout;
+        c.orderPlace  += row.orderPlace;
+        c.timeSpent   += row.timeSpent;
+        c.productDetailOpen       += row.productDetailOpen;
+        c.cartAddUnique           += row.cartAddUnique;
+        c.checkoutUnique          += row.checkoutUnique;
+        c.orderPlaceUnique        += row.orderPlaceUnique;
+        c.productDetailOpenUnique += row.productDetailOpenUnique;
         campMap.set(key, c);
       }
 
