@@ -315,7 +315,7 @@ function CampaignTable({ campaigns, sortKey, sortDir, onSort }: {
 }) {
   const cols: ColDef[] = [
     // ── Identity ──────────────────────────────────────────────────────────────
-    { key: 'name',       label: 'Campagne',         fmt: (c) => c.name.replace(/[_\s]+\d{6,}$/, '') },
+    { key: 'name',       label: 'Campagne',         fmt: (c) => c.name.replace(/\s*\(\d{10,}\)\s*$/, '').replace(/[_\s]+\d{6,}$/, '') },
     { key: 'appName',    label: 'App',               fmt: (c) => c.appName },
     // ── Top of funnel ─────────────────────────────────────────────────────────
     { key: 'impressions', label: 'Impressions',      fmt: (c) => fmtNum(c.impressions) },
