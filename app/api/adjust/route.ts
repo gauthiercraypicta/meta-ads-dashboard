@@ -15,13 +15,12 @@ const CHECKOUT_UNIQUE_METRIC = 'order_checkout_unique_events';
 const ORDER_UNIQUE_METRIC    = 'order_placed_unique_events';
 const PRODUCT_UNIQUE_METRIC  = 'product_detail_open_unique_events';
 
-// dimensions=day only → accurate grand totals (includes organic, no suppression)
-const DIMENSIONS_DAY  = ['day'];
-const METRICS_BASE    = ['installs', 'clicks', 'impressions', 'cost'];
-
-// dimensions=day,campaign → per-campaign breakdown + events
-const DIMENSIONS_CAMP = ['day', 'campaign'];
-const METRICS_ALL     = [
+// One call per period: dimensions=day,campaign gives the per-campaign breakdown.
+// The API also returns a top-level `totals` object that Adjust computes server-side
+// and that matches the Adjust UI (it includes organic/unattributed installs that
+// rows with a campaign dimension would otherwise omit).
+const DIMENSIONS = ['day', 'campaign'];
+const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
   CART_UNIQUE_METRIC, CHECKOUT_UNIQUE_METRIC, ORDER_UNIQUE_METRIC, PRODUCT_UNIQUE_METRIC,
@@ -35,17 +34,19 @@ const APP_TOKENS = (process.env.ADJUST_APP_TOKENS ?? '').split(',').map((s) => s
 const fmt = (d: Date) => d.toISOString().split('T')[0];
 
 function getRange(datePreset: string): { start_date: string; end_date: string } {
-  const today = new Date();
-  if (datePreset === 'yesterday') {
-    const yesterday = fmt(new Date(today.getTime() - 86_400_000));
-    return { start_date: yesterday, end_date: yesterday };
-  }
-  if (datePreset === 'since_dec_1') return { start_date: '2025-12-01', end_date: fmt(today) };
+  // All ranges end at yesterday (last complete day) so the API totals we receive
+  // are final and match the Adjust UI's same period exactly.
+  const yesterday = new Date(Date.now() - 86_400_000);
+  const yStr      = fmt(yesterday);
+
+  if (datePreset === 'yesterday')   return { start_date: yStr, end_date: yStr };
+  if (datePreset === 'since_dec_1') return { start_date: '2025-12-01', end_date: yStr };
+
   const days: Record<string, number> = { last_3d: 3, last_7d: 7, last_14d: 14, last_30d: 30, last_90d: 90 };
-  const n = days[datePreset] ?? 30;
-  const since = new Date(today);
-  since.setDate(today.getDate() - n);
-  return { start_date: fmt(since), end_date: fmt(today) };
+  const n     = days[datePreset] ?? 30;
+  const since = new Date(yesterday);
+  since.setDate(yesterday.getDate() - (n - 1));
+  return { start_date: fmt(since), end_date: yStr };
 }
 
 function getPrevRange(curr: { start_date: string; end_date: string }): { start_date: string; end_date: string } {
@@ -82,14 +83,12 @@ interface ReportResponse {
 async function fetchReport(
   appTokens: string[],
   range: { start_date: string; end_date: string },
-  dims: string[],
-  metrics: string[],
 ): Promise<ReportResponse> {
   const parts: string[] = [];
   for (const t of appTokens) parts.push(`app_token[]=${encodeURIComponent(t)}`);
   parts.push(`date_period=${range.start_date}:${range.end_date}`);
-  parts.push(`dimensions=${dims.join(',')}`);
-  parts.push(`metrics=${metrics.join(',')}`);
+  parts.push(`dimensions=${DIMENSIONS.join(',')}`);
+  parts.push(`metrics=${METRICS.join(',')}`);
   parts.push('limit=50000');
   const url = `${REPORT_URL}?${parts.join('&')}`;
   console.log('[Adjust] requesting:', url);
@@ -184,17 +183,12 @@ function sumRows(rows: AdjustDailyRow[]): RowSum {
   );
 }
 
-// Sum the day-level report rows (no campaign field) for accurate totals
-function sumDayRows(rows: ReportRow[], todayStr: string): Pick<RowSum, 'installs' | 'clicks' | 'impressions' | 'cost'> {
-  let installs = 0, clicks = 0, impressions = 0, cost = 0;
-  for (const r of rows) {
-    if ((r.day ?? '') >= todayStr) continue;
-    installs    += Number(r.installs    ?? 0);
-    clicks      += Number(r.clicks      ?? 0);
-    impressions += Number(r.impressions ?? 0);
-    cost        += Number(r.cost        ?? 0);
-  }
-  return { installs, clicks, impressions, cost };
+// Read a numeric KPI from the API-provided totals object, falling back to a
+// pre-computed value when the field is absent or non-finite.
+function fromApiTotals(t: Record<string, unknown> | undefined, key: string, fallback: number): number {
+  if (!t || t[key] == null) return fallback;
+  const v = Number(t[key]);
+  return Number.isFinite(v) ? v : fallback;
 }
 
 // ─── Route ────────────────────────────────────────────────────────────────────
@@ -214,24 +208,19 @@ export async function GET(req: Request) {
     const result = await withCache<AdjustResponse>(`adjust:${datePreset}`, TTL, async () => {
       const range     = getRange(datePreset);
       const prevRange = getPrevRange(range);
-      const todayStr  = fmt(new Date());
 
-      // Four concurrent calls:
-      // • dayRep      — dimensions=day: accurate grand totals including organic installs
-      // • campRep     — dimensions=day,campaign: per-campaign breakdown + event metrics
-      // • prevDayRep  — same as dayRep but for prev period
-      // • prevCampRep — same as campRep but for prev period
-      const [dayRep, campRep, prevDayRep, prevCampRep] = await Promise.all([
-        fetchReport(APP_TOKENS, range,     DIMENSIONS_DAY,  METRICS_BASE),
-        fetchReport(APP_TOKENS, range,     DIMENSIONS_CAMP, METRICS_ALL),
-        fetchReport(APP_TOKENS, prevRange, DIMENSIONS_DAY,  METRICS_BASE),
-        fetchReport(APP_TOKENS, prevRange, DIMENSIONS_CAMP, METRICS_ALL),
+      const [curr, prev] = await Promise.all([
+        fetchReport(APP_TOKENS, range),
+        fetchReport(APP_TOKENS, prevRange),
       ]);
 
-      const filterRow = (r: ReportRow) => (r.day ?? '') < todayStr;
+      // Date range already excludes today; no additional date filter needed.
+      // App-token guard is a safety net for when app_token appears in the row.
+      const appTokenSet = new Set(APP_TOKENS);
+      const filterRow   = (r: ReportRow) => !r.app_token || appTokenSet.has(r.app_token);
 
-      const daily    = (campRep.rows     ?? []).filter(filterRow).map(mapRow);
-      const prevDail = (prevCampRep.rows ?? []).filter(filterRow).map(mapRow);
+      const daily    = (curr.rows ?? []).filter(filterRow).map(mapRow);
+      const prevDail = (prev.rows ?? []).filter(filterRow).map(mapRow);
 
       // ── Campaigns ────────────────────────────────────────────────────────────
       const campMap = new Map<string, AdjustCampaignSummary>();
@@ -272,33 +261,34 @@ export async function GET(req: Request) {
       }));
 
       // ── Totals ────────────────────────────────────────────────────────────────
-      // Use day-level (no campaign dimension) for installs/clicks/impressions/cost:
-      // this captures organic installs and avoids any campaign-level suppression,
-      // matching what the Adjust UI reports. Events stay from campaign-level sum.
-      const dayBase     = sumDayRows(dayRep.rows     ?? [], todayStr);
-      const prevDayBase = sumDayRows(prevDayRep.rows ?? [], todayStr);
+      // For installs/clicks/impressions/cost: use the API-returned `totals` object.
+      // Adjust computes this server-side for the requested app tokens + date range,
+      // including organic (unattributed) installs — exactly what the Adjust UI shows.
+      // For event metrics: sum from rows (API totals don't include custom events).
       const campSum     = sumRows(daily);
       const prevCampSum = sumRows(prevDail);
 
       const totals = deriveTotals({
         ...campSum,
-        installs:    dayBase.installs,
-        clicks:      dayBase.clicks,
-        impressions: dayBase.impressions,
-        cost:        dayBase.cost,
+        installs:    fromApiTotals(curr.totals, 'installs',    campSum.installs),
+        clicks:      fromApiTotals(curr.totals, 'clicks',      campSum.clicks),
+        impressions: fromApiTotals(curr.totals, 'impressions', campSum.impressions),
+        cost:        fromApiTotals(curr.totals, 'cost',        campSum.cost),
       });
 
-      const prevBaseTotal = {
+      const prevBase = {
         ...prevCampSum,
-        installs:    prevDayBase.installs,
-        clicks:      prevDayBase.clicks,
-        impressions: prevDayBase.impressions,
-        cost:        prevDayBase.cost,
+        installs:    fromApiTotals(prev.totals, 'installs',    prevCampSum.installs),
+        clicks:      fromApiTotals(prev.totals, 'clicks',      prevCampSum.clicks),
+        impressions: fromApiTotals(prev.totals, 'impressions', prevCampSum.impressions),
+        cost:        fromApiTotals(prev.totals, 'cost',        prevCampSum.cost),
       };
-      const prevTotals = prevBaseTotal.installs > 0 || prevBaseTotal.cost > 0
-        ? deriveTotals(prevBaseTotal)
+
+      const prevTotals = prevBase.installs > 0 || prevBase.cost > 0
+        ? deriveTotals(prevBase)
         : null;
 
+      // ── Prev-period per-segment breakdowns (used for "vs préc." on filtered views) ──
       function prevSegment(filter: (r: AdjustDailyRow) => boolean): AdjustTotals | null {
         const s = sumRows(prevDail.filter(filter));
         return s.installs > 0 || s.cost > 0 ? deriveTotals(s) : null;
@@ -309,23 +299,29 @@ export async function GET(req: Request) {
       const iconicPrevTotals    = prevSegment((r) => n(r.campaignName).includes('iconic'));
       const otherPaidPrevTotals = prevSegment((r) => r.cost > 0 && !n(r.campaignName).includes('generic') && !n(r.campaignName).includes('iconic'));
 
-      const paidPrevSum = sumRows(prevDail.filter((r) => r.cost > 0));
-      const noncampPrevInstalls    = Math.max(0, prevDayBase.installs    - paidPrevSum.installs);
+      const paidPrevSum            = sumRows(prevDail.filter((r) => r.cost > 0));
+      const noncampPrevInstalls    = Math.max(0, prevBase.installs    - paidPrevSum.installs);
       const noncampPrevEngagement  = Math.max(0, prevCampSum.engagement  - paidPrevSum.engagement);
-      const noncampPrevClicks      = Math.max(0, prevDayBase.clicks      - paidPrevSum.clicks);
-      const noncampPrevImpressions = Math.max(0, prevDayBase.impressions - paidPrevSum.impressions);
+      const noncampPrevClicks      = Math.max(0, prevBase.clicks      - paidPrevSum.clicks);
+      const noncampPrevImpressions = Math.max(0, prevBase.impressions - paidPrevSum.impressions);
+
       const noncampPrevTotals: AdjustTotals | null = noncampPrevInstalls > 0 ? {
         installs: noncampPrevInstalls, clicks: noncampPrevClicks, impressions: noncampPrevImpressions,
         cost: 0, sessions: 0, engagement: noncampPrevEngagement,
         cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0,
         cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0,
-        cpi: 0, ctr: noncampPrevImpressions > 0 ? noncampPrevClicks / noncampPrevImpressions : 0,
+        cpi: 0,
+        ctr: noncampPrevImpressions > 0 ? noncampPrevClicks / noncampPrevImpressions : 0,
         cpm: 0, cpiEngagement: 0,
       } : null;
 
       const apps = [...new Map(daily.map((r) => [r.appToken, { token: r.appToken, name: r.appName }])).values()];
 
-      return { daily, campaigns, totals, prevTotals, genericPrevTotals, iconicPrevTotals, otherPaidPrevTotals, noncampPrevTotals, apps, currency: 'USD' };
+      return {
+        daily, campaigns, totals, prevTotals,
+        genericPrevTotals, iconicPrevTotals, otherPaidPrevTotals, noncampPrevTotals,
+        apps, currency: 'USD',
+      };
     });
 
     return NextResponse.json(result);
