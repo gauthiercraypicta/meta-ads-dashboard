@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { withCache } from '@/lib/apiCache';
-import type { DemographicsResponse, DemoRow } from '@/types/demographics';
+import type { DemographicsResponse, DemoRow, PlatformSummary } from '@/types/demographics';
 
 const BASE    = 'https://graph.facebook.com/v21.0';
 const TTL     = 20 * 60 * 1000;
@@ -11,6 +11,13 @@ const ACCOUNT = process.env.META_AD_ACCOUNT_ID  ?? '';
 const SINCE = '2026-07-01';
 
 const AGE_ORDER = ['13-17', '18-24', '25-34', '35-44', '45-54', '55-64', '65+'];
+
+const PLATFORM_LABEL: Record<string, string> = {
+  facebook:         'Facebook',
+  instagram:        'Instagram',
+  audience_network: 'Audience Network',
+  messenger:        'Messenger',
+};
 
 function action(
   actions: Array<{ action_type: string; value: string }> | undefined,
@@ -41,13 +48,13 @@ function extractProduct(name: string): string {
 interface RawRow {
   campaign_name:      string;
   campaign_id:        string;
-  age:                string;
-  gender:             string;
-  publisher_platform: string;
+  age?:               string;
+  gender?:            string;
+  publisher_platform?: string;
   spend:              string;
   impressions:        string;
   clicks:             string;
-  reach:              string;
+  reach?:             string;
   actions?: Array<{ action_type: string; value: string }>;
 }
 
@@ -85,38 +92,43 @@ export async function GET() {
     const result = await withCache<DemographicsResponse>('demographics:jul2026', TTL, async () => {
       const today = new Date().toISOString().split('T')[0];
 
-      const params = new URLSearchParams({
-        fields:      'campaign_name,campaign_id,spend,impressions,clicks,reach,actions',
-        breakdowns:  'age,gender,publisher_platform',
+      const commonParams = {
         level:       'campaign',
         time_range:  JSON.stringify({ since: SINCE, until: today }),
         filtering:   JSON.stringify([{ field: 'spend', operator: 'GREATER_THAN', value: '0' }]),
         limit:       '5000',
         access_token: TOKEN,
-      });
+      };
 
-      const raw = await fetchAllPages(`${BASE}/${ACCOUNT}/insights?${params}`);
+      // Two separate calls — Meta doesn't allow age+gender+publisher_platform combined
+      const [rawAgeGender, rawPlatform] = await Promise.all([
+        fetchAllPages(`${BASE}/${ACCOUNT}/insights?${new URLSearchParams({
+          ...commonParams,
+          fields:     'campaign_name,campaign_id,spend,impressions,clicks,reach,actions',
+          breakdowns: 'age,gender',
+        })}`),
+        fetchAllPages(`${BASE}/${ACCOUNT}/insights?${new URLSearchParams({
+          ...commonParams,
+          fields:     'campaign_name,campaign_id,spend,impressions,clicks,actions',
+          breakdowns: 'publisher_platform',
+        })}`),
+      ]);
 
-      const rows: DemoRow[] = raw.map((r) => {
+      // ── Age/gender rows ──────────────────────────────────────────────────────
+      const rows: DemoRow[] = rawAgeGender.map((r) => {
         const spend       = Number(r.spend      ?? 0);
         const impressions = Number(r.impressions ?? 0);
         const clicks      = Number(r.clicks     ?? 0);
         const reach       = Number(r.reach      ?? 0);
         const installs    = action(r.actions, 'mobile_app_install', 'omni_app_install');
         const purchases   = action(r.actions, 'purchase', 'omni_purchase');
-        const gender   = r.gender === 'male' ? 'Homme' : r.gender === 'female' ? 'Femme' : 'Autre';
-        const platform = r.publisher_platform === 'facebook' ? 'Facebook'
-                       : r.publisher_platform === 'instagram' ? 'Instagram'
-                       : r.publisher_platform === 'audience_network' ? 'Audience Network'
-                       : r.publisher_platform === 'messenger' ? 'Messenger'
-                       : r.publisher_platform ?? 'Autre';
+        const gender      = r.gender === 'male' ? 'Homme' : r.gender === 'female' ? 'Femme' : 'Autre';
         return {
           campaignId:   r.campaign_id,
           campaignName: r.campaign_name,
           product:      extractProduct(r.campaign_name),
-          age:          r.age,
+          age:          r.age ?? '',
           gender,
-          platform,
           spend,
           impressions,
           clicks,
@@ -130,12 +142,40 @@ export async function GET() {
         };
       });
 
+      // ── Platform summary ─────────────────────────────────────────────────────
+      const platMap = new Map<string, { spend: number; impressions: number; clicks: number; installs: number }>();
+      for (const r of rawPlatform) {
+        const key      = PLATFORM_LABEL[r.publisher_platform ?? ''] ?? r.publisher_platform ?? 'Autre';
+        const spend    = Number(r.spend      ?? 0);
+        const impr     = Number(r.impressions ?? 0);
+        const clicks   = Number(r.clicks     ?? 0);
+        const installs = action(r.actions, 'mobile_app_install', 'omni_app_install');
+        const cur      = platMap.get(key) ?? { spend: 0, impressions: 0, clicks: 0, installs: 0 };
+        platMap.set(key, {
+          spend:       cur.spend       + spend,
+          impressions: cur.impressions + impr,
+          clicks:      cur.clicks      + clicks,
+          installs:    cur.installs    + installs,
+        });
+      }
+      const platformSummary: PlatformSummary[] = [...platMap.entries()]
+        .map(([platform, v]) => ({
+          platform,
+          spend:       v.spend,
+          impressions: v.impressions,
+          clicks:      v.clicks,
+          installs:    v.installs,
+          cpm: v.impressions > 0 ? (v.spend / v.impressions) * 1000 : 0,
+          ctr: v.impressions > 0 ? v.clicks / v.impressions : 0,
+          cpi: v.installs    > 0 ? v.spend  / v.installs    : 0,
+        }))
+        .sort((a, b) => b.spend - a.spend);
+
       const campaigns = [...new Set(rows.map((r) => r.campaignName))].sort();
       const products  = [...new Set(rows.map((r) => r.product))].sort();
       const ageGroups = AGE_ORDER.filter((a) => rows.some((r) => r.age === a));
-      const platforms = [...new Set(rows.map((r) => r.platform))].sort();
 
-      return { rows, campaigns, products, ageGroups, platforms };
+      return { rows, campaigns, products, ageGroups, platformSummary };
     });
 
     return NextResponse.json(result);
