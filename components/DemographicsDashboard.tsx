@@ -169,6 +169,7 @@ export default function DemographicsDashboard() {
   // Filters
   const [selCampaigns, setSelCampaigns] = useState<Set<string>>(new Set());
   const [selProducts,  setSelProducts]  = useState<Set<string>>(new Set());
+  const [selPlatforms, setSelPlatforms] = useState<Set<string>>(new Set());
 
   // View for cross-table: by campaign or by product
   const [crossView, setCrossView] = useState<'campaign' | 'product'>('campaign');
@@ -191,9 +192,10 @@ export default function DemographicsDashboard() {
     return data.rows.filter((r) => {
       if (selCampaigns.size > 0 && !selCampaigns.has(r.campaignName)) return false;
       if (selProducts.size  > 0 && !selProducts.has(r.product))        return false;
+      if (selPlatforms.size > 0 && !selPlatforms.has(r.platform))      return false;
       return true;
     });
-  }, [data, selCampaigns, selProducts]);
+  }, [data, selCampaigns, selProducts, selPlatforms]);
 
   // ── Age × gender spend breakdown ───────────────────────────────────────────
 
@@ -322,8 +324,9 @@ export default function DemographicsDashboard() {
     else { setSortKey(k); setSortDir('desc'); }
   };
 
-  const toggleCamp    = (c: string) => setSelCampaigns((s) => { const n = new Set(s); n.has(c) ? n.delete(c) : n.add(c); return n; });
-  const toggleProduct = (p: string) => setSelProducts((s)  => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
+  const toggleCamp     = (c: string) => setSelCampaigns((s)  => { const n = new Set(s); n.has(c) ? n.delete(c) : n.add(c); return n; });
+  const toggleProduct  = (p: string) => setSelProducts((s)   => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
+  const togglePlatform = (p: string) => setSelPlatforms((s)  => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
 
   // ── Loading / error ────────────────────────────────────────────────────────
 
@@ -386,6 +389,28 @@ export default function DemographicsDashboard() {
                 onToggle={toggleProduct}
                 onReset={() => setSelProducts(new Set())}
               />
+            </div>
+          )}
+          {data.platforms && data.platforms.length > 1 && (
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Plateforme</p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setSelPlatforms(new Set())}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${selPlatforms.size === 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400'}`}
+                >
+                  Toutes
+                </button>
+                {data.platforms.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => togglePlatform(p)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${selPlatforms.has(p) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400'}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>

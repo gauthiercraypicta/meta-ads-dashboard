@@ -39,14 +39,15 @@ function extractProduct(name: string): string {
 }
 
 interface RawRow {
-  campaign_name: string;
-  campaign_id:   string;
-  age:           string;
-  gender:        string;
-  spend:         string;
-  impressions:   string;
-  clicks:        string;
-  reach:         string;
+  campaign_name:      string;
+  campaign_id:        string;
+  age:                string;
+  gender:             string;
+  publisher_platform: string;
+  spend:              string;
+  impressions:        string;
+  clicks:             string;
+  reach:              string;
   actions?: Array<{ action_type: string; value: string }>;
 }
 
@@ -86,7 +87,7 @@ export async function GET() {
 
       const params = new URLSearchParams({
         fields:      'campaign_name,campaign_id,spend,impressions,clicks,reach,actions',
-        breakdowns:  'age,gender',
+        breakdowns:  'age,gender,publisher_platform',
         level:       'campaign',
         time_range:  JSON.stringify({ since: SINCE, until: today }),
         filtering:   JSON.stringify([{ field: 'spend', operator: 'GREATER_THAN', value: '0' }]),
@@ -103,13 +104,19 @@ export async function GET() {
         const reach       = Number(r.reach      ?? 0);
         const installs    = action(r.actions, 'mobile_app_install', 'omni_app_install');
         const purchases   = action(r.actions, 'purchase', 'omni_purchase');
-        const gender      = r.gender === 'male' ? 'Homme' : r.gender === 'female' ? 'Femme' : 'Autre';
+        const gender   = r.gender === 'male' ? 'Homme' : r.gender === 'female' ? 'Femme' : 'Autre';
+        const platform = r.publisher_platform === 'facebook' ? 'Facebook'
+                       : r.publisher_platform === 'instagram' ? 'Instagram'
+                       : r.publisher_platform === 'audience_network' ? 'Audience Network'
+                       : r.publisher_platform === 'messenger' ? 'Messenger'
+                       : r.publisher_platform ?? 'Autre';
         return {
           campaignId:   r.campaign_id,
           campaignName: r.campaign_name,
           product:      extractProduct(r.campaign_name),
           age:          r.age,
           gender,
+          platform,
           spend,
           impressions,
           clicks,
@@ -126,8 +133,9 @@ export async function GET() {
       const campaigns = [...new Set(rows.map((r) => r.campaignName))].sort();
       const products  = [...new Set(rows.map((r) => r.product))].sort();
       const ageGroups = AGE_ORDER.filter((a) => rows.some((r) => r.age === a));
+      const platforms = [...new Set(rows.map((r) => r.platform))].sort();
 
-      return { rows, campaigns, products, ageGroups };
+      return { rows, campaigns, products, ageGroups, platforms };
     });
 
     return NextResponse.json(result);
