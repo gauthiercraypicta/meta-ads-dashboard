@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
 } from 'recharts';
-import type { DemographicsResponse, DemoRow, PlatformSummary } from '@/types/demographics';
+import type { DemographicsResponse, DemoRow, PlatformSummary, AgePlatformRow } from '@/types/demographics';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -424,6 +424,53 @@ export default function DemographicsDashboard() {
                       <td className="py-2 text-right tabular-nums">{fmt$(p.cpm)}</td>
                       <td className="py-2 text-right tabular-nums">{fmtPct(p.ctr)}</td>
                       <td className="py-2 text-right tabular-nums">{fmtN(p.impressions)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Age × Platform cross-table */}
+      {data?.agePlatform && data.agePlatform.length > 0 && data.platforms && data.platforms.length > 1 && (
+        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Dépenses par âge & plateforme</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-100">
+                  <th className="text-left pb-2 font-medium">Tranche d&apos;âge</th>
+                  {data.platforms.map((plat) => (
+                    <th key={plat} className="text-right pb-2 font-medium" colSpan={2}>{plat}</th>
+                  ))}
+                </tr>
+                <tr className="text-gray-300 border-b border-gray-100">
+                  <th className="pb-1.5"></th>
+                  {data.platforms.map((plat) => (
+                    <React.Fragment key={plat}>
+                      <th className="text-right pb-1.5 font-normal pr-2">Dépenses</th>
+                      <th className="text-right pb-1.5 font-normal">Installs</th>
+                    </React.Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {AGE_ORDER.filter((age) => data.agePlatform.some((r) => r.age === age)).map((age) => {
+                  const byPlat = new Map(data.agePlatform.filter((r) => r.age === age).map((r) => [r.platform, r]));
+                  return (
+                    <tr key={age} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                      <td className="py-1.5 font-medium text-gray-700">{age}</td>
+                      {data.platforms.map((plat) => {
+                        const r = byPlat.get(plat);
+                        return (
+                          <React.Fragment key={plat}>
+                            <td className="py-1.5 text-right tabular-nums pr-2">{r ? fmt$(r.spend) : '—'}</td>
+                            <td className="py-1.5 text-right tabular-nums text-gray-500">{r && r.installs > 0 ? fmtN(r.installs) : '—'}</td>
+                          </React.Fragment>
+                        );
+                      })}
                     </tr>
                   );
                 })}
