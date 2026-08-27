@@ -4,7 +4,6 @@ export interface DemoRow {
   product:      string;
   age:          string;
   gender:       string;
-  platform:     string;
   spend:        number;
   impressions:  number;
   clicks:       number;
@@ -17,10 +16,21 @@ export interface DemoRow {
   cpm:          number;
 }
 
+export interface PlatformSummary {
+  platform:    string;
+  spend:       number;
+  impressions: number;
+  clicks:      number;
+  installs:    number;
+  cpm:         number;
+  ctr:         number;
+  cpi:         number;
+}
+
 export interface DemographicsResponse {
-  rows:      DemoRow[];
-  campaigns: string[];
-  products:  string[];
-  ageGroups: string[];
-  platforms: string[];
+  rows:             DemoRow[];
+  campaigns:        string[];
+  products:         string[];
+  ageGroups:        string[];
+  platformSummary:  PlatformSummary[];
 }

@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, Legend,
 } from 'recharts';
-import type { DemographicsResponse, DemoRow } from '@/types/demographics';
+import type { DemographicsResponse, DemoRow, PlatformSummary } from '@/types/demographics';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -169,7 +169,6 @@ export default function DemographicsDashboard() {
   // Filters
   const [selCampaigns, setSelCampaigns] = useState<Set<string>>(new Set());
   const [selProducts,  setSelProducts]  = useState<Set<string>>(new Set());
-  const [selPlatforms, setSelPlatforms] = useState<Set<string>>(new Set());
 
   // View for cross-table: by campaign or by product
   const [crossView, setCrossView] = useState<'campaign' | 'product'>('campaign');
@@ -192,10 +191,9 @@ export default function DemographicsDashboard() {
     return data.rows.filter((r) => {
       if (selCampaigns.size > 0 && !selCampaigns.has(r.campaignName)) return false;
       if (selProducts.size  > 0 && !selProducts.has(r.product))        return false;
-      if (selPlatforms.size > 0 && !selPlatforms.has(r.platform))      return false;
       return true;
     });
-  }, [data, selCampaigns, selProducts, selPlatforms]);
+  }, [data, selCampaigns, selProducts]);
 
   // ── Age × gender spend breakdown ───────────────────────────────────────────
 
@@ -324,9 +322,8 @@ export default function DemographicsDashboard() {
     else { setSortKey(k); setSortDir('desc'); }
   };
 
-  const toggleCamp     = (c: string) => setSelCampaigns((s)  => { const n = new Set(s); n.has(c) ? n.delete(c) : n.add(c); return n; });
-  const toggleProduct  = (p: string) => setSelProducts((s)   => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
-  const togglePlatform = (p: string) => setSelPlatforms((s)  => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
+  const toggleCamp    = (c: string) => setSelCampaigns((s) => { const n = new Set(s); n.has(c) ? n.delete(c) : n.add(c); return n; });
+  const toggleProduct = (p: string) => setSelProducts((s)  => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
 
   // ── Loading / error ────────────────────────────────────────────────────────
 
@@ -391,28 +388,48 @@ export default function DemographicsDashboard() {
               />
             </div>
           )}
-          {data.platforms && data.platforms.length > 1 && (
-            <div className="pt-2 border-t border-gray-100">
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Plateforme</p>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  onClick={() => setSelPlatforms(new Set())}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${selPlatforms.size === 0 ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400'}`}
-                >
-                  Toutes
-                </button>
-                {data.platforms.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => togglePlatform(p)}
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${selPlatforms.has(p) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-400'}`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+        </div>
+      )}
+
+      {/* Platform split — informational, separate API call (age+gender+platform not combinable in Meta API) */}
+      {data?.platformSummary && data.platformSummary.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 px-5 py-4">
+          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Répartition par plateforme</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-400 border-b border-gray-100">
+                  <th className="text-left pb-2 font-medium">Plateforme</th>
+                  <th className="text-right pb-2 font-medium">Dépenses</th>
+                  <th className="text-right pb-2 font-medium">Installs</th>
+                  <th className="text-right pb-2 font-medium">CPI</th>
+                  <th className="text-right pb-2 font-medium">CPM</th>
+                  <th className="text-right pb-2 font-medium">CTR</th>
+                  <th className="text-right pb-2 font-medium">Impressions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.platformSummary.map((p: PlatformSummary) => {
+                  const totalSpendPlatform = data.platformSummary.reduce((s, x) => s + x.spend, 0);
+                  const pct = totalSpendPlatform > 0 ? (p.spend / totalSpendPlatform) * 100 : 0;
+                  return (
+                    <tr key={p.platform} className="border-b border-gray-50 last:border-0">
+                      <td className="py-2 font-medium text-gray-700">
+                        {p.platform}
+                        <span className="ml-2 text-gray-400 font-normal">{pct.toFixed(1)}%</span>
+                      </td>
+                      <td className="py-2 text-right tabular-nums">{fmt$(p.spend)}</td>
+                      <td className="py-2 text-right tabular-nums">{p.installs > 0 ? fmtN(p.installs) : '—'}</td>
+                      <td className="py-2 text-right tabular-nums">{p.cpi > 0 ? fmt$(p.cpi) : '—'}</td>
+                      <td className="py-2 text-right tabular-nums">{fmt$(p.cpm)}</td>
+                      <td className="py-2 text-right tabular-nums">{fmtPct(p.ctr)}</td>
+                      <td className="py-2 text-right tabular-nums">{fmtN(p.impressions)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
