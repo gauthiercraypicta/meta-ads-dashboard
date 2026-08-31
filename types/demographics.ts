@@ -27,10 +27,22 @@ export interface PlatformSummary {
   cpi:         number;
 }
 
+export interface AgePlatformRow {
+  age:         string;
+  platform:    string;
+  spend:       number;
+  impressions: number;
+  installs:    number;
+  cpi:         number;
+  cpm:         number;
+}
+
 export interface DemographicsResponse {
   rows:             DemoRow[];
   campaigns:        string[];
   products:         string[];
   ageGroups:        string[];
   platformSummary:  PlatformSummary[];
+  agePlatform:      AgePlatformRow[];
+  platforms:        string[];
 }

@@ -1011,6 +1011,32 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [enrichedDailyRows, enrichedPaidCampaigns, filteredPaidCampaigns, showGenericOnly, kpiSegment, data]);
 
+  // OS split per day from dailySimple (one row per app_token = per OS, no suppression)
+  const dailyOsSplit = useMemo(() => {
+    if (!data?.dailySimple) return new Map<string, { os: string; installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number }[]>();
+    const map = new Map<string, Map<string, { installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number }>>();
+    for (const r of data.dailySimple) {
+      const os = r.appName.replace(/^Picta\s*/i, '').trim() || r.appToken;
+      if (!map.has(r.date)) map.set(r.date, new Map());
+      const byOs = map.get(r.date)!;
+      const e = byOs.get(os) ?? { installs: 0, engagement: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0 };
+      e.installs        += r.installs;
+      e.engagement      += r.engagement;
+      e.cartAddUnique   += r.cartAddUnique   ?? 0;
+      e.checkoutUnique  += r.checkoutUnique  ?? 0;
+      e.orderPlaceUnique += r.orderPlaceUnique ?? 0;
+      byOs.set(os, e);
+    }
+    const result = new Map<string, { os: string; installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number }[]>();
+    for (const [date, byOs] of map) {
+      result.set(date, [...byOs.entries()].map(([os, v]) => ({ os, ...v })).sort((a, b) => a.os.localeCompare(b.os)));
+    }
+    return result;
+  }, [data]);
+
+  const [expandedOsDates, setExpandedOsDates] = useState<Set<string>>(new Set());
+  const toggleOsDate = (date: string) => setExpandedOsDates((s) => { const n = new Set(s); n.has(date) ? n.delete(date) : n.add(date); return n; });
+
   const toggleCamp = useCallback((key: string) => {
     setHiddenCamps((prev) => {
       const next = new Set(prev);
@@ -2318,9 +2344,21 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                         const coRate       = d.cartAddUnique > 0 ? d.checkoutUnique   / d.cartAddUnique : null;
                         const orderRate    = d.checkoutUnique > 0 ? d.orderPlaceUnique / d.checkoutUnique : null;
                         const pct = (r: number | null) => r !== null ? `${(r * 100).toFixed(1)}%` : null;
+                        const osSplit = dailyOsSplit.get(d.date) ?? [];
+                        const isExpanded = expandedOsDates.has(d.date);
                         return (
-                          <tr key={d.date} className={`border-b border-gray-50 ${i % 2 ? 'bg-gray-50/40' : ''}`}>
-                            <td className={`${tdBase} text-[10px] text-gray-400 text-left`}>{fmtDate(d.date)}</td>
+                          <React.Fragment key={d.date}>
+                          <tr className={`border-b border-gray-50 ${i % 2 ? 'bg-gray-50/40' : ''}`}>
+                            <td className={`${tdBase} text-[10px] text-gray-400 text-left`}>
+                              <div className="flex items-center gap-1">
+                                {fmtDate(d.date)}
+                                {osSplit.length > 1 && (
+                                  <button onClick={() => toggleOsDate(d.date)} className="text-gray-300 hover:text-gray-500 transition-colors" title="Split iOS / Android">
+                                    <svg className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-3 py-2 text-gray-600 font-medium text-left">{getDow(d.date)}</td>
                             <td className={`${tdBase} text-right text-amber-600 font-semibold`}>{d.cost > 0 ? `$${Math.round(d.cost)}` : '—'}</td>
                             <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(d.installs)}</td>
@@ -2342,6 +2380,31 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                               {pct(orderRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(orderRate)} du checkout</div>}
                             </td>
                           </tr>
+                          {isExpanded && osSplit.map((os) => {
+                            const osAbandon   = os.cartAddUnique - os.checkoutUnique;
+                            const osCoRate    = os.cartAddUnique  > 0 ? os.checkoutUnique   / os.cartAddUnique  : null;
+                            const osOrdRate   = os.checkoutUnique > 0 ? os.orderPlaceUnique / os.checkoutUnique : null;
+                            return (
+                              <tr key={os.os} className="bg-blue-50/30 border-b border-blue-50 text-[10px]">
+                                <td className="pl-7 pr-3 py-1.5 text-gray-400 text-left italic">{os.os}</td>
+                                <td className="px-3 py-1.5 text-gray-300 text-left">↳</td>
+                                <td className="px-3 py-1.5 text-right text-gray-300">—</td>
+                                <td className="px-3 py-1.5 text-right text-blue-400 tabular-nums">{os.installs || '—'}</td>
+                                <td className="px-3 py-1.5 text-right text-purple-400 tabular-nums">{os.engagement || '—'}</td>
+                                <td className="px-3 py-1.5 text-right text-teal-400 tabular-nums">{os.cartAddUnique || '—'}</td>
+                                <td className="px-3 py-1.5 text-right text-red-300 tabular-nums">{osAbandon > 0 ? osAbandon : '—'}</td>
+                                <td className="px-3 py-1.5 text-right text-teal-500 tabular-nums">
+                                  <div>{os.checkoutUnique || '—'}</div>
+                                  {osCoRate !== null && <div className="text-gray-300 font-normal">{(osCoRate * 100).toFixed(0)}% du panier</div>}
+                                </td>
+                                <td className="px-3 py-1.5 text-right text-green-400 tabular-nums font-semibold">
+                                  <div>{os.orderPlaceUnique || '—'}</div>
+                                  {osOrdRate !== null && <div className="text-gray-300 font-normal">{(osOrdRate * 100).toFixed(0)}% du co.</div>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          </React.Fragment>
                         );
                       })}
 

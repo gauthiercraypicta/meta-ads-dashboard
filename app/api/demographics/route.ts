@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { withCache } from '@/lib/apiCache';
-import type { DemographicsResponse, DemoRow, PlatformSummary } from '@/types/demographics';
+import type { DemographicsResponse, DemoRow, PlatformSummary, AgePlatformRow } from '@/types/demographics';
 
 const BASE    = 'https://graph.facebook.com/v21.0';
 const TTL     = 20 * 60 * 1000;
@@ -100,8 +100,9 @@ export async function GET() {
         access_token: TOKEN,
       };
 
-      // Two separate calls — Meta doesn't allow age+gender+publisher_platform combined
-      const [rawAgeGender, rawPlatform] = await Promise.all([
+      // Three separate calls — Meta doesn't allow age+gender+publisher_platform combined.
+      // age+publisher_platform (without gender) is valid and gives the age×platform cross.
+      const [rawAgeGender, rawPlatform, rawAgePlatform] = await Promise.all([
         fetchAllPages(`${BASE}/${ACCOUNT}/insights?${new URLSearchParams({
           ...commonParams,
           fields:     'campaign_name,campaign_id,spend,impressions,clicks,reach,actions',
@@ -111,6 +112,11 @@ export async function GET() {
           ...commonParams,
           fields:     'campaign_name,campaign_id,spend,impressions,clicks,actions',
           breakdowns: 'publisher_platform',
+        })}`),
+        fetchAllPages(`${BASE}/${ACCOUNT}/insights?${new URLSearchParams({
+          ...commonParams,
+          fields:     'campaign_name,campaign_id,spend,impressions,actions',
+          breakdowns: 'age,publisher_platform',
         })}`),
       ]);
 
@@ -171,11 +177,36 @@ export async function GET() {
         }))
         .sort((a, b) => b.spend - a.spend);
 
+      // ── Age × platform ───────────────────────────────────────────────────────
+      const apMap = new Map<string, { spend: number; impressions: number; installs: number }>();
+      for (const r of rawAgePlatform) {
+        const age      = r.age ?? '';
+        const platform = PLATFORM_LABEL[r.publisher_platform ?? ''] ?? r.publisher_platform ?? 'Autre';
+        const key      = `${age}||${platform}`;
+        const spend    = Number(r.spend      ?? 0);
+        const impr     = Number(r.impressions ?? 0);
+        const installs = action(r.actions, 'mobile_app_install', 'omni_app_install');
+        const cur      = apMap.get(key) ?? { spend: 0, impressions: 0, installs: 0 };
+        apMap.set(key, { spend: cur.spend + spend, impressions: cur.impressions + impr, installs: cur.installs + installs });
+      }
+      const agePlatform: AgePlatformRow[] = [...apMap.entries()].map(([key, v]) => {
+        const [age, platform] = key.split('||');
+        return {
+          age, platform,
+          spend:       v.spend,
+          impressions: v.impressions,
+          installs:    v.installs,
+          cpi: v.installs    > 0 ? v.spend / v.installs    : 0,
+          cpm: v.impressions > 0 ? (v.spend / v.impressions) * 1000 : 0,
+        };
+      }).sort((a, b) => AGE_ORDER.indexOf(a.age) - AGE_ORDER.indexOf(b.age) || a.platform.localeCompare(b.platform));
+
       const campaigns = [...new Set(rows.map((r) => r.campaignName))].sort();
       const products  = [...new Set(rows.map((r) => r.product))].sort();
       const ageGroups = AGE_ORDER.filter((a) => rows.some((r) => r.age === a));
+      const platforms = [...new Set(agePlatform.map((r) => r.platform))].sort();
 
-      return { rows, campaigns, products, ageGroups, platformSummary };
+      return { rows, campaigns, products, ageGroups, platformSummary, agePlatform, platforms };
     });
 
     return NextResponse.json(result);
