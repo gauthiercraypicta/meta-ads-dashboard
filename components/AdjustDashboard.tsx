@@ -1011,19 +1011,25 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [enrichedDailyRows, enrichedPaidCampaigns, filteredPaidCampaigns, showGenericOnly, kpiSegment, data]);
 
-  // OS split per day from dailySimple (one row per app_token = per OS, no suppression)
+  // OS split per day derived from campaign name (ios/android in name) using enrichedDailyRows
   const dailyOsSplit = useMemo(() => {
-    if (!data?.dailySimple) return new Map<string, { os: string; installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number }[]>();
+    const osOf = (name: string) => {
+      const lo = name.toLowerCase();
+      if (lo.includes('ios') || lo.includes('iphone') || lo.includes('apple')) return 'iOS';
+      if (lo.includes('android')) return 'Android';
+      if (lo.includes('web') || lo.includes('landing')) return 'Web';
+      return 'Autre';
+    };
     const map = new Map<string, Map<string, { installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number }>>();
-    for (const r of data.dailySimple) {
-      const os = r.appName.replace(/^Picta\s*/i, '').trim() || r.appToken;
+    for (const r of enrichedDailyRows) {
+      const os = osOf(r.campaignName);
       if (!map.has(r.date)) map.set(r.date, new Map());
       const byOs = map.get(r.date)!;
       const e = byOs.get(os) ?? { installs: 0, engagement: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0 };
-      e.installs        += r.installs;
-      e.engagement      += r.engagement;
-      e.cartAddUnique   += r.cartAddUnique   ?? 0;
-      e.checkoutUnique  += r.checkoutUnique  ?? 0;
+      e.installs         += r.installs;
+      e.engagement       += r.engagement;
+      e.cartAddUnique    += r.cartAddUnique   ?? 0;
+      e.checkoutUnique   += r.checkoutUnique  ?? 0;
       e.orderPlaceUnique += r.orderPlaceUnique ?? 0;
       byOs.set(os, e);
     }
@@ -1032,7 +1038,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       result.set(date, [...byOs.entries()].map(([os, v]) => ({ os, ...v })).sort((a, b) => a.os.localeCompare(b.os)));
     }
     return result;
-  }, [data]);
+  }, [enrichedDailyRows]);
 
   const [expandedOsDates, setExpandedOsDates] = useState<Set<string>>(new Set());
   const toggleOsDate = (date: string) => setExpandedOsDates((s) => { const n = new Set(s); n.has(date) ? n.delete(date) : n.add(date); return n; });
