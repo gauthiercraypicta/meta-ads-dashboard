@@ -1018,11 +1018,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       if (lo.includes('ios') || lo.includes('iphone') || lo.includes('apple')) return 'iOS';
       if (lo.includes('android')) return 'Android';
       if (lo.includes('web') || lo.includes('landing')) return 'Web';
-      return 'Autre';
+      return null;
     };
     const map = new Map<string, Map<string, { installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number }>>();
     for (const r of enrichedDailyRows) {
       const os = osOf(r.campaignName);
+      if (!os) continue;
       if (!map.has(r.date)) map.set(r.date, new Map());
       const byOs = map.get(r.date)!;
       const e = byOs.get(os) ?? { installs: 0, engagement: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0 };
