@@ -33,7 +33,7 @@ const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
   CART_UNIQUE_METRIC, CHECKOUT_UNIQUE_METRIC, ORDER_UNIQUE_METRIC, PRODUCT_UNIQUE_METRIC,
-  CUSTOMIZE_UNIQUE_METRIC,
+  // CUSTOMIZE_UNIQUE_METRIC omitted until correct Adjust event name is confirmed
 ];
 
 const API_TOKEN  = process.env.ADJUST_API_TOKEN  ?? '';
