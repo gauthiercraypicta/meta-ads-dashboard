@@ -54,18 +54,19 @@ function generateMock(): AdjustResponse {
       const checkoutUnique    = Math.round(checkout   * (0.7 + Math.random() * 0.2));
       const orderPlaceUnique  = Math.round(orderPlace * (0.7 + Math.random() * 0.2));
       const productDetailOpenUnique = Math.round(productDetailOpen * (0.7 + Math.random() * 0.2));
-      daily.push({ date, appToken: c.appToken, appName: c.appName, campaignToken: c.token, campaignName: c.name, installs, clicks, impressions, cost, sessions: Math.round(installs * (2 + Math.random() * 3)), engagement, cartAdd, checkout, orderPlace, timeSpent, productDetailOpen, cartAddUnique, checkoutUnique, orderPlaceUnique, productDetailOpenUnique });
+      const customizeUnique = Math.round(engagement * (0.3 + Math.random() * 0.2));
+      daily.push({ date, appToken: c.appToken, appName: c.appName, campaignToken: c.token, campaignName: c.name, installs, clicks, impressions, cost, sessions: Math.round(installs * (2 + Math.random() * 3)), engagement, cartAdd, checkout, orderPlace, timeSpent, productDetailOpen, cartAddUnique, checkoutUnique, orderPlaceUnique, productDetailOpenUnique, customizeUnique });
     }
   }
-  const ZERO_EXTRA = { productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0 };
+  const ZERO_EXTRA = { productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0, customizeUnique: 0 };
   const campSummary: AdjustCampaignSummary[] = campaigns.map((c) => {
     const rows = daily.filter((r) => r.campaignToken === c.token);
-    const t = rows.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent, productDetailOpen: a.productDetailOpen + r.productDetailOpen, cartAddUnique: a.cartAddUnique + r.cartAddUnique, checkoutUnique: a.checkoutUnique + r.checkoutUnique, orderPlaceUnique: a.orderPlaceUnique + r.orderPlaceUnique, productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, ...ZERO_EXTRA });
+    const t = rows.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent, productDetailOpen: a.productDetailOpen + r.productDetailOpen, cartAddUnique: a.cartAddUnique + r.cartAddUnique, checkoutUnique: a.checkoutUnique + r.checkoutUnique, orderPlaceUnique: a.orderPlaceUnique + r.orderPlaceUnique, productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique, customizeUnique: a.customizeUnique + r.customizeUnique }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, ...ZERO_EXTRA });
     return { token: c.token, name: c.name, appName: c.appName, ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
   });
-  const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent, productDetailOpen: a.productDetailOpen + r.productDetailOpen, cartAddUnique: a.cartAddUnique + r.cartAddUnique, checkoutUnique: a.checkoutUnique + r.checkoutUnique, orderPlaceUnique: a.orderPlaceUnique + r.orderPlaceUnique, productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, ...ZERO_EXTRA });
+  const t = daily.reduce((a, r) => ({ installs: a.installs + r.installs, clicks: a.clicks + r.clicks, impressions: a.impressions + r.impressions, cost: a.cost + r.cost, sessions: a.sessions + r.sessions, engagement: a.engagement + r.engagement, cartAdd: a.cartAdd + r.cartAdd, checkout: a.checkout + r.checkout, orderPlace: a.orderPlace + r.orderPlace, timeSpent: a.timeSpent + r.timeSpent, productDetailOpen: a.productDetailOpen + r.productDetailOpen, cartAddUnique: a.cartAddUnique + r.cartAddUnique, checkoutUnique: a.checkoutUnique + r.checkoutUnique, orderPlaceUnique: a.orderPlaceUnique + r.orderPlaceUnique, productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique, customizeUnique: a.customizeUnique + r.customizeUnique }), { installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0, cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, ...ZERO_EXTRA });
   const totals = { ...t, cpi: t.installs > 0 ? t.cost / t.installs : 0, ctr: t.impressions > 0 ? t.clicks / t.impressions : 0, cpm: t.impressions > 0 ? (t.cost / t.impressions) * 1000 : 0, cpiEngagement: t.engagement > 0 ? t.cost / t.engagement : 0 };
-  const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82), cartAdd: Math.round(totals.cartAdd * 0.80), checkout: Math.round(totals.checkout * 0.80), orderPlace: Math.round(totals.orderPlace * 0.80), timeSpent: totals.timeSpent * 0.95, productDetailOpen: Math.round(totals.productDetailOpen * 0.80), cartAddUnique: Math.round(totals.cartAddUnique * 0.80), checkoutUnique: Math.round(totals.checkoutUnique * 0.80), orderPlaceUnique: Math.round(totals.orderPlaceUnique * 0.80), productDetailOpenUnique: Math.round(totals.productDetailOpenUnique * 0.80) };
+  const prevTotals = { ...totals, installs: Math.round(totals.installs * 0.85), cost: totals.cost * 0.9, engagement: Math.round(totals.engagement * 0.82), cpi: totals.cpi * 1.1, ctr: totals.ctr * 0.97, cpm: totals.cpm * 1.05, cpiEngagement: totals.cpiEngagement * 1.08, sessions: Math.round(totals.sessions * 0.82), cartAdd: Math.round(totals.cartAdd * 0.80), checkout: Math.round(totals.checkout * 0.80), orderPlace: Math.round(totals.orderPlace * 0.80), timeSpent: totals.timeSpent * 0.95, productDetailOpen: Math.round(totals.productDetailOpen * 0.80), cartAddUnique: Math.round(totals.cartAddUnique * 0.80), checkoutUnique: Math.round(totals.checkoutUnique * 0.80), orderPlaceUnique: Math.round(totals.orderPlaceUnique * 0.80), productDetailOpenUnique: Math.round(totals.productDetailOpenUnique * 0.80), customizeUnique: Math.round(totals.customizeUnique * 0.80) };
   const genericPrevTotals   = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.5), cost: prevTotals.cost * 0.5, engagement: Math.round(prevTotals.engagement * 0.5), cpi: prevTotals.cpi * 1.05, cpiEngagement: prevTotals.cpiEngagement * 1.05 };
   const iconicPrevTotals    = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.2), cost: prevTotals.cost * 0.2, engagement: Math.round(prevTotals.engagement * 0.2), cpi: prevTotals.cpi * 0.95, cpiEngagement: prevTotals.cpiEngagement * 0.95 };
   const otherPaidPrevTotals = { ...prevTotals, installs: Math.round(prevTotals.installs * 0.3), cost: prevTotals.cost * 0.3, engagement: Math.round(prevTotals.engagement * 0.3), cpi: prevTotals.cpi * 1.02, cpiEngagement: prevTotals.cpiEngagement * 1.02 };
@@ -989,7 +990,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
     }
     const map = new Map<string, {
       date: string; installs: number; clicks: number; cost: number; engagement: number;
-      cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number;
+      cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number; customizeUnique: number;
     }>();
     for (const r of rows) {
       const e = map.get(r.date);
@@ -998,12 +999,12 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
           date: r.date,
           installs: r.installs, clicks: r.clicks ?? 0, cost: r.cost, engagement: r.engagement,
           cartAddUnique: r.cartAddUnique ?? 0, checkoutUnique: r.checkoutUnique ?? 0,
-          orderPlaceUnique: r.orderPlaceUnique ?? 0,
+          orderPlaceUnique: r.orderPlaceUnique ?? 0, customizeUnique: r.customizeUnique ?? 0,
         });
       } else {
         e.installs += r.installs; e.clicks += r.clicks ?? 0; e.cost += r.cost; e.engagement += r.engagement;
         e.cartAddUnique += r.cartAddUnique ?? 0; e.checkoutUnique += r.checkoutUnique ?? 0;
-        e.orderPlaceUnique += r.orderPlaceUnique ?? 0;
+        e.orderPlaceUnique += r.orderPlaceUnique ?? 0; e.customizeUnique += r.customizeUnique ?? 0;
       }
     }
     return Array.from(map.values())
@@ -1018,22 +1019,24 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
       if (lo.includes('ios') || lo.includes('iphone') || lo.includes('apple')) return 'iOS';
       if (lo.includes('android')) return 'Android';
       if (lo.includes('web') || lo.includes('landing')) return 'Web';
-      return 'Autre';
+      return null;
     };
-    const map = new Map<string, Map<string, { installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number }>>();
+    const map = new Map<string, Map<string, { installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number; customizeUnique: number }>>();
     for (const r of enrichedDailyRows) {
       const os = osOf(r.campaignName);
+      if (!os) continue;
       if (!map.has(r.date)) map.set(r.date, new Map());
       const byOs = map.get(r.date)!;
-      const e = byOs.get(os) ?? { installs: 0, engagement: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0 };
+      const e = byOs.get(os) ?? { installs: 0, engagement: 0, cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, customizeUnique: 0 };
       e.installs         += r.installs;
       e.engagement       += r.engagement;
-      e.cartAddUnique    += r.cartAddUnique   ?? 0;
-      e.checkoutUnique   += r.checkoutUnique  ?? 0;
+      e.cartAddUnique    += r.cartAddUnique    ?? 0;
+      e.checkoutUnique   += r.checkoutUnique   ?? 0;
       e.orderPlaceUnique += r.orderPlaceUnique ?? 0;
+      e.customizeUnique  += r.customizeUnique  ?? 0;
       byOs.set(os, e);
     }
-    const result = new Map<string, { os: string; installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number }[]>();
+    const result = new Map<string, { os: string; installs: number; engagement: number; cartAddUnique: number; checkoutUnique: number; orderPlaceUnique: number; customizeUnique: number }[]>();
     for (const [date, byOs] of map) {
       result.set(date, [...byOs.entries()].map(([os, v]) => ({ os, ...v })).sort((a, b) => a.os.localeCompare(b.os)));
     }
@@ -2246,6 +2249,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
         const fTotalCost   = funnelRows.reduce((s, d) => s + d.cost, 0);
         const fTotalInst   = funnelRows.reduce((s, d) => s + d.installs, 0);
         const fTotalEng    = funnelRows.reduce((s, d) => s + d.engagement, 0);
+        const fTotalCust   = funnelRows.reduce((s, d) => s + (d.customizeUnique ?? 0), 0);
         const fTotalCart   = funnelRows.reduce((s, d) => s + d.cartAddUnique, 0);
         const fTotalCo     = funnelRows.reduce((s, d) => s + d.checkoutUnique, 0);
         const fTotalOrder  = funnelRows.reduce((s, d) => s + d.orderPlaceUnique, 0);
@@ -2336,6 +2340,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                         <th className={`${thHead} text-right text-amber-600`}>Spend</th>
                         <th className={`${thHead} text-right text-blue-500`}>Downloads</th>
                         <th className={`${thHead} text-right text-purple-500`}>Qualifiés</th>
+                        <th className={`${thHead} text-right text-indigo-400`}>Customize</th>
                         <th className={`${thHead} text-right text-teal-500`}>Panier+</th>
                         <th className={`${thHead} text-right text-red-400`}>Abandon</th>
                         <th className={`${thHead} text-right text-teal-600`}>Checkout</th>
@@ -2345,6 +2350,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                     <tbody>
                       {funnelRows.map((d, i) => {
                         const abandon      = d.cartAddUnique - d.checkoutUnique;
+                        const custRate     = d.engagement    > 0 ? (d.customizeUnique ?? 0) / d.engagement    : null;
                         const cartRate     = d.engagement    > 0 ? d.cartAddUnique   / d.engagement    : null;
                         const abandonRate  = d.cartAddUnique > 0 ? abandon            / d.cartAddUnique : null;
                         const coRate       = d.cartAddUnique > 0 ? d.checkoutUnique   / d.cartAddUnique : null;
@@ -2369,6 +2375,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                             <td className={`${tdBase} text-right text-amber-600 font-semibold`}>{d.cost > 0 ? `$${Math.round(d.cost)}` : '—'}</td>
                             <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(d.installs)}</td>
                             <td className={`${tdBase} text-right text-purple-500 font-semibold`}>{fmtNum(d.engagement)}</td>
+                            <td className={`${tdBase} text-right text-indigo-400 font-semibold`}>
+                              <div>{(d.customizeUnique ?? 0) > 0 ? d.customizeUnique : '—'}</div>
+                              {pct(custRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(custRate)} des qual.</div>}
+                            </td>
                             <td className={`${tdBase} text-right text-teal-500 font-semibold`}>
                               <div>{d.cartAddUnique || '—'}</div>
                               {pct(cartRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(cartRate)} des qual.</div>}
@@ -2397,6 +2407,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                                 <td className="px-3 py-1.5 text-right text-gray-300">—</td>
                                 <td className="px-3 py-1.5 text-right text-blue-400 tabular-nums">{os.installs || '—'}</td>
                                 <td className="px-3 py-1.5 text-right text-purple-400 tabular-nums">{os.engagement || '—'}</td>
+                                <td className="px-3 py-1.5 text-right text-indigo-300 tabular-nums">{(os.customizeUnique ?? 0) > 0 ? os.customizeUnique : '—'}</td>
                                 <td className="px-3 py-1.5 text-right text-teal-400 tabular-nums">{os.cartAddUnique || '—'}</td>
                                 <td className="px-3 py-1.5 text-right text-red-300 tabular-nums">{osAbandon > 0 ? osAbandon : '—'}</td>
                                 <td className="px-3 py-1.5 text-right text-teal-500 tabular-nums">
@@ -2416,6 +2427,7 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
 
                       {/* Funnel total */}
                       {(() => {
+                        const tCustRate  = fTotalEng   > 0 ? fTotalCust             / fTotalEng   : null;
                         const tCartRate  = fTotalEng   > 0 ? fTotalCart              / fTotalEng   : null;
                         const tAbandRate = fTotalCart  > 0 ? (fTotalCart - fTotalCo)    / fTotalCart : null;
                         const tCoRate    = fTotalCart  > 0 ? fTotalCo                / fTotalCart  : null;
@@ -2428,6 +2440,10 @@ export default function AdjustDashboard({ datePreset }: { datePreset: string }) 
                             <td className={`${tdBase} text-right text-amber-600`}>${Math.round(fTotalCost)}</td>
                             <td className={`${tdBase} text-right text-blue-500`}>{fmtNum(fTotalInst)}</td>
                             <td className={`${tdBase} text-right text-purple-500`}>{fmtNum(fTotalEng)}</td>
+                            <td className={`${tdBase} text-right text-indigo-400`}>
+                              <div>{fTotalCust || '—'}</div>
+                              {pct(tCustRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tCustRate)} des qual.</div>}
+                            </td>
                             <td className={`${tdBase} text-right text-teal-500`}>
                               <div>{fTotalCart}</div>
                               {pct(tCartRate) && <div className="text-[9px] text-gray-400 font-normal leading-none mt-0.5">{pct(tCartRate)} des qual.</div>}

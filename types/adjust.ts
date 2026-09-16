@@ -19,6 +19,7 @@ export interface AdjustDailyRow {
   checkoutUnique: number;      // order_checkout_unique
   orderPlaceUnique: number;    // order_placed_unique
   productDetailOpenUnique: number; // product_detail_open_unique
+  customizeUnique: number;     // customize_product_unique (fb_mobile_customize_product_unique)
 }
 
 export interface AdjustCampaignSummary {
@@ -40,6 +41,7 @@ export interface AdjustCampaignSummary {
   checkoutUnique: number;
   orderPlaceUnique: number;
   productDetailOpenUnique: number;
+  customizeUnique: number;
   cpi: number;
   ctr: number;
   cpm: number;
@@ -62,6 +64,7 @@ export interface AdjustTotals {
   checkoutUnique: number;
   orderPlaceUnique: number;
   productDetailOpenUnique: number;
+  customizeUnique: number;
   cpi: number;
   ctr: number;
   cpm: number;
