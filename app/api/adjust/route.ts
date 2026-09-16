@@ -17,6 +17,7 @@ const CART_UNIQUE_METRIC       = 'cart_item_add_unique_events';
 const CHECKOUT_UNIQUE_METRIC   = 'order_checkout_unique_events';
 const ORDER_UNIQUE_METRIC      = 'order_placed_unique_events';
 const PRODUCT_UNIQUE_METRIC    = 'product_detail_open_unique_events';
+const CUSTOMIZE_UNIQUE_METRIC  = 'customize_product_unique_events'; // fb_mobile_customize_product_unique
 
 // Daily breakdown — no campaign_id_network (reduces network-ID cell splitting),
 // app_token required for filterRow. Used for per-campaign daily chart only.
@@ -32,6 +33,7 @@ const METRICS    = [
   'installs', 'clicks', 'impressions', 'cost', ENGAGE_TOKEN,
   CART_METRIC, CHECKOUT_METRIC, ORDER_METRIC, PRODUCT_DETAIL_METRIC,
   CART_UNIQUE_METRIC, CHECKOUT_UNIQUE_METRIC, ORDER_UNIQUE_METRIC, PRODUCT_UNIQUE_METRIC,
+  CUSTOMIZE_UNIQUE_METRIC,
 ];
 
 const API_TOKEN  = process.env.ADJUST_API_TOKEN  ?? '';
@@ -134,7 +136,7 @@ function deriveTotals(t: {
   installs: number; clicks: number; impressions: number; cost: number; engagement: number;
   cartAdd: number; checkout: number; orderPlace: number; timeSpent: number;
   productDetailOpen: number; cartAddUnique: number; checkoutUnique: number;
-  orderPlaceUnique: number; productDetailOpenUnique: number;
+  orderPlaceUnique: number; productDetailOpenUnique: number; customizeUnique: number;
 }): AdjustTotals {
   return {
     ...t,
@@ -165,10 +167,11 @@ function mapRow(r: ReportRow): AdjustDailyRow {
     checkout:             Number(r[CHECKOUT_METRIC]       ?? 0),
     orderPlace:           Number(r[ORDER_METRIC]          ?? 0),
     productDetailOpen:    Number(r[PRODUCT_DETAIL_METRIC] ?? 0),
-    cartAddUnique:        Number(r[CART_UNIQUE_METRIC]    ?? 0),
-    checkoutUnique:       Number(r[CHECKOUT_UNIQUE_METRIC] ?? 0),
-    orderPlaceUnique:     Number(r[ORDER_UNIQUE_METRIC]   ?? 0),
+    cartAddUnique:        Number(r[CART_UNIQUE_METRIC]      ?? 0),
+    checkoutUnique:       Number(r[CHECKOUT_UNIQUE_METRIC]  ?? 0),
+    orderPlaceUnique:     Number(r[ORDER_UNIQUE_METRIC]     ?? 0),
     productDetailOpenUnique: Number(r[PRODUCT_UNIQUE_METRIC] ?? 0),
+    customizeUnique:      Number(r[CUSTOMIZE_UNIQUE_METRIC] ?? 0),
     timeSpent:  0,
   };
 }
@@ -177,7 +180,7 @@ type RowSum = {
   installs: number; clicks: number; impressions: number; cost: number;
   engagement: number; cartAdd: number; checkout: number; orderPlace: number; timeSpent: number;
   productDetailOpen: number; cartAddUnique: number; checkoutUnique: number;
-  orderPlaceUnique: number; productDetailOpenUnique: number;
+  orderPlaceUnique: number; productDetailOpenUnique: number; customizeUnique: number;
 };
 
 function sumRows(rows: AdjustDailyRow[]): RowSum {
@@ -197,12 +200,13 @@ function sumRows(rows: AdjustDailyRow[]): RowSum {
       checkoutUnique:          a.checkoutUnique          + r.checkoutUnique,
       orderPlaceUnique:        a.orderPlaceUnique        + r.orderPlaceUnique,
       productDetailOpenUnique: a.productDetailOpenUnique + r.productDetailOpenUnique,
+      customizeUnique:         a.customizeUnique         + r.customizeUnique,
     }),
     {
       installs: 0, clicks: 0, impressions: 0, cost: 0, engagement: 0,
       cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0,
       productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0,
-      orderPlaceUnique: 0, productDetailOpenUnique: 0,
+      orderPlaceUnique: 0, productDetailOpenUnique: 0, customizeUnique: 0,
     },
   );
 }
@@ -267,7 +271,7 @@ export async function GET(req: Request) {
           installs: 0, clicks: 0, impressions: 0, cost: 0, sessions: 0, engagement: 0,
           cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0,
           productDetailOpen: 0, cartAddUnique: 0, checkoutUnique: 0,
-          orderPlaceUnique: 0, productDetailOpenUnique: 0,
+          orderPlaceUnique: 0, productDetailOpenUnique: 0, customizeUnique: 0,
           cpi: 0, ctr: 0, cpm: 0, cpiEngagement: 0,
         };
         c.installs    += row.installs;
@@ -284,6 +288,7 @@ export async function GET(req: Request) {
         c.checkoutUnique          += row.checkoutUnique;
         c.orderPlaceUnique        += row.orderPlaceUnique;
         c.productDetailOpenUnique += row.productDetailOpenUnique;
+        c.customizeUnique         += row.customizeUnique;
         campMap.set(key, c);
       }
 
@@ -325,6 +330,7 @@ export async function GET(req: Request) {
         cost: 0, sessions: 0, engagement: noncampPrevEngagement,
         cartAdd: 0, checkout: 0, orderPlace: 0, timeSpent: 0, productDetailOpen: 0,
         cartAddUnique: 0, checkoutUnique: 0, orderPlaceUnique: 0, productDetailOpenUnique: 0,
+        customizeUnique: 0,
         cpi: 0, ctr: noncampPrevImpressions > 0 ? noncampPrevClicks / noncampPrevImpressions : 0,
         cpm: 0, cpiEngagement: 0,
       } : null;
