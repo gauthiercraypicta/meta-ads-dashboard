@@ -12,6 +12,7 @@ export interface MetaDailyRow {
   campaignName: string;
   installs:     number;
   engagement:   number; // fb_mobile_activate_app
+  customize:    number; // fb_mobile_customize_product_unique
   spend:        number;
 }
 
@@ -121,6 +122,7 @@ export async function GET(req: Request) {
         spend:      Number(r.spend ?? 0),
         installs:   action(r.actions, 'mobile_app_install', 'omni_app_install'),
         engagement: action(r.actions, 'omni_activate_app', 'app_custom_event.fb_mobile_activate_app'),
+        customize:  action(r.actions, 'app_custom_event.fb_mobile_customize_product_unique', 'fb_mobile_customize_product_unique'),
       }));
 
       return { rows, availableActionTypes };
