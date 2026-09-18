@@ -115,7 +115,7 @@ export async function GET() {
         })}`),
         fetchAllPages(`${BASE}/${ACCOUNT}/insights?${new URLSearchParams({
           ...commonParams,
-          fields:     'campaign_name,campaign_id,spend,impressions,actions',
+          fields:     'campaign_name,campaign_id,spend,impressions,clicks',
           breakdowns: 'age,publisher_platform',
         })}`),
       ]);
@@ -178,16 +178,16 @@ export async function GET() {
         .sort((a, b) => b.spend - a.spend);
 
       // ── Age × platform ───────────────────────────────────────────────────────
-      const apMap = new Map<string, { spend: number; impressions: number; installs: number }>();
+      const apMap = new Map<string, { spend: number; impressions: number; clicks: number }>();
       for (const r of rawAgePlatform) {
         const age      = r.age ?? '';
         const platform = PLATFORM_LABEL[r.publisher_platform ?? ''] ?? r.publisher_platform ?? 'Autre';
         const key      = `${age}||${platform}`;
         const spend    = Number(r.spend      ?? 0);
         const impr     = Number(r.impressions ?? 0);
-        const installs = action(r.actions, 'mobile_app_install', 'omni_app_install');
-        const cur      = apMap.get(key) ?? { spend: 0, impressions: 0, installs: 0 };
-        apMap.set(key, { spend: cur.spend + spend, impressions: cur.impressions + impr, installs: cur.installs + installs });
+        const clicks   = Number(r.clicks     ?? 0);
+        const cur      = apMap.get(key) ?? { spend: 0, impressions: 0, clicks: 0 };
+        apMap.set(key, { spend: cur.spend + spend, impressions: cur.impressions + impr, clicks: cur.clicks + clicks });
       }
       const agePlatform: AgePlatformRow[] = [...apMap.entries()].map(([key, v]) => {
         const [age, platform] = key.split('||');
@@ -195,8 +195,8 @@ export async function GET() {
           age, platform,
           spend:       v.spend,
           impressions: v.impressions,
-          installs:    v.installs,
-          cpi: v.installs    > 0 ? v.spend / v.installs    : 0,
+          installs:    0,
+          cpi: 0,
           cpm: v.impressions > 0 ? (v.spend / v.impressions) * 1000 : 0,
         };
       }).sort((a, b) => AGE_ORDER.indexOf(a.age) - AGE_ORDER.indexOf(b.age) || a.platform.localeCompare(b.platform));
